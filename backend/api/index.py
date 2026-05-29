@@ -101,6 +101,9 @@ class SemanticRetriever:
         scored_docs.sort(key=lambda x: x[0], reverse=True)
         return [doc for _, doc in scored_docs[:k]]
 
+    def invoke(self, query: str) -> List[Document]:
+        return self.retrieve(query, k=4)
+
 # LangChain prompt template
 from langchain_core.prompts import PromptTemplate
 prompt_tmpl = PromptTemplate(
@@ -214,8 +217,8 @@ def get_retriever_for_book(book_code: str) -> tuple:
         df['Response'] = df['Response'].fillna('').astype(str)
         
         book_retriever = SemanticRetriever(df)
-        retrievers[book_code] = ("semantic", book_retriever)
-        print(f"RAG System: Offline Semantic Retriever cached for '{book_code}'.")
+        retrievers[book_code] = (active_provider if active_provider else "semantic", book_retriever)
+        print(f"RAG System: Offline Semantic Retriever cached for '{book_code}' (Inference Mode: {active_provider if active_provider else 'semantic'}).")
         return retrievers[book_code]
     except Exception as e:
         print(f"RAG System: Failed to build offline semantic retriever for '{book_code}' ({e}). Returning emergency fallback.")
@@ -226,7 +229,7 @@ def get_retriever_for_book(book_code: str) -> tuple:
             "Response": "Welcome to Vachan Study Bible Study Chatbot."
         }])
         book_retriever = SemanticRetriever(dummy_df)
-        retrievers[book_code] = ("semantic", book_retriever)
+        retrievers[book_code] = (active_provider if active_provider else "semantic", book_retriever)
         return retrievers[book_code]
 
 # =====================================================================
