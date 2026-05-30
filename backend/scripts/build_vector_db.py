@@ -347,6 +347,15 @@ def prebuild_vector_db():
                     print(f"[WARNING] Skipping '{book_code}': Dataset has no valid Q&A rows.")
                     continue
 
+                # 💡 Smart Downsampling for vector store to stay under API free tier limits (Max 400 chunks per book)
+                MAX_CHUNKS = 400
+                if len(df) > MAX_CHUNKS:
+                    print(f"   [BUDGET] Book '{book_code}' has {len(df)} chunks (exceeds API limit budget of {MAX_CHUNKS}).")
+                    print(f"            Downsampling to {MAX_CHUNKS} representative chunks for vector database compilation...")
+                    # Evenly sample MAX_CHUNKS rows across the book to maintain full canonical coverage
+                    indices = [int(i * (len(df) - 1) / (MAX_CHUNKS - 1)) for i in range(MAX_CHUNKS)]
+                    df = df.iloc[indices].reset_index(drop=True)
+
                 # Convert to LangChain Documents
                 lc_docs = []
                 for _, row in df.iterrows():
