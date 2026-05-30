@@ -204,11 +204,31 @@ def prebuild_vector_db():
         print("[ERROR] unfoldingWord en_tq source directory is missing. Exiting.")
         return
 
+    import sys
+    
+    # Check if a specific book argument was provided (e.g. 'GEN')
+    target_book = None
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].upper().strip()
+        if arg != "ALL":
+            target_book = arg
+
     # Find all Translation Questions TSV files
     tsv_files = [f for f in os.listdir(TQ_DIR) if f.startswith("tq_") and f.endswith(".tsv")]
     if not tsv_files:
         print("[ERROR] No tq_*.tsv files found in backend/data/en_tq/. Exiting.")
         return
+
+    if target_book:
+        target_file = f"tq_{target_book}.tsv"
+        if target_file in tsv_files:
+            tsv_files = [target_file]
+            print(f"[INFO] Target Book Selected: {target_book}")
+        else:
+            available_books = ", ".join([f.replace('tq_', '').replace('.tsv', '') for f in sorted(tsv_files)])
+            print(f"[ERROR] Book dataset '{target_book}' not found in backend/data/en_tq/.")
+            print(f"        Available books: {available_books}")
+            return
 
     print(f"[SUCCESS] Found {len(tsv_files)} book Q&A datasets. Initializing vector DB generation...")
     os.makedirs(VECTORSTORES_DIR, exist_ok=True)
