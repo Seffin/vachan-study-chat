@@ -258,6 +258,29 @@ export default function Workspace({ selectedBook, setSelectedBook, onBackToLandi
     }
   }, [activeHighlights]);
 
+  // 📜 3. Scroll Selected Book into View in the Scripture Navigator (Desktop & Mobile)
+  useEffect(() => {
+    if (!selectedBook) return;
+
+    const timer = setTimeout(() => {
+      // 1. Desktop Sidebar Scroll
+      const activeDesktop = document.getElementById(`sidebar-book-${selectedBook.toLowerCase()}`);
+      if (activeDesktop) {
+        activeDesktop.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
+      // 2. Mobile Drawer Scroll
+      if (leftOpen) {
+        const activeMobile = document.getElementById(`mobile-book-${selectedBook.toLowerCase()}`);
+        if (activeMobile) {
+          activeMobile.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      }
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [selectedBook, leftOpen]);
+
   // Handle book switching
   const handleBookChange = (bookName: string) => {
     setSelectedBook(bookName);
@@ -525,6 +548,7 @@ export default function Workspace({ selectedBook, setSelectedBook, onBackToLandi
                   return (
                     <button
                       key={book.name}
+                      id={`mobile-book-${book.name.toLowerCase()}`}
                       onClick={() => handleBookChange(book.name)}
                       className={`w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center justify-between ${
                         isActive 
