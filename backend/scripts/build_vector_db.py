@@ -384,10 +384,12 @@ def prebuild_vector_db():
                         except Exception as embed_err:
                             err_msg = str(embed_err)
                             is_rate_limit = any(term in err_msg.lower() for term in ["429", "quota", "exhausted", "rate", "limit"])
-                            is_permanent_quota = any(term in err_msg.lower() for term in ["insufficient_quota", "insufficient_funds", "billing", "check your plan and billing details"])
+                            is_temporary = any(term in err_msg.lower() for term in ["retry", "requestsperminute", "requestsperday", "requests per minute", "requests per day"])
+                            is_permanent_quota = any(term in err_msg.lower() for term in ["insufficient_quota", "insufficient_funds", "billing"]) and not is_temporary
                             if is_rate_limit and not is_permanent_quota and attempt < max_retries:
-                                sleep_dur = base_delay * attempt
-                                print(f"   [RATE LIMIT] Hit limit on batch {batch_num} (attempt {attempt}/{max_retries}). Sleeping for {sleep_dur}s...")
+                                sleep_dur = 65  # Sleep for 65 seconds to fully reset the 1-minute API rate limit window
+                                print(f"   [RATE LIMIT] Hit temporary limit on batch {batch_num} (attempt {attempt}/{max_retries}).")
+                                print(f"                Sleeping for {sleep_dur} seconds to completely reset the API window...")
                                 time.sleep(sleep_dur)
                             else:
                                 raise embed_err  # Re-raise if not a rate limit, or exhausted all retries
