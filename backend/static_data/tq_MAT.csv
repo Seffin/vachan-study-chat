@@ -1,8 +1,485 @@
-Reference,Question,Response
-1:1,Why is the genealogy of Jesus important in Matthew 1?,"The genealogy of Jesus Christ serves as a legal and theological bridge. Matthew traces Jesus' lineage back to Abraham (covenant identity) and David (royal kingship), proving He legally inherits the messianic promises as the promised Messiah."
-1:18,How did Mary become pregnant?,"Now the birth of Jesus Christ took place in this way. When His mother Mary had been betrothed to Joseph, before they came together she was found to be with child from the Holy Spirit."
-1:19,Why did Joseph want to divorce Mary?,"And her husband Joseph, being a just man (upright keeper of the Law) and unwilling to put Mary to public shame or social disgrace, resolved to divorce her quietly through a private contract before two witnesses rather than exposing her to public judgment."
-1:20,What did Joseph do next after the dream?,"But as he considered these things, behold, an angel of the Lord appeared to him in a dream, saying, 'Joseph, son of David, do not fear to take Mary as your wife, for that which is conceived in her is from the Holy Spirit.' Upon waking, Joseph immediately acted on faith and took Mary as his wife."
-1:21,What will Mary do and what should the child be named?,"She will bear a son, and you shall call His name Jesus, for He will save His people from their sins, fulfilling the divine rescue plan."
-1:23,Explain the significance of the name Immanuel.,"The prophet's words were fulfilled: 'Behold, the virgin shall conceive and bear a son, and they shall call His name Immanuel' (which means, God with us). It signifies God entering human history in physical form to dwell directly among His people."
-1:24,What did Joseph do when he woke from sleep?,"When Joseph woke from sleep, he did as the angel of the Lord commanded him: he took his wife Mary, demonstrating absolute obedience and covenant trust."
+Reference,ID,Tags,Quote,Occurrence,Question,Response
+1:1,o4pb,,,0,"In the genealogy of Jesus Christ, which two ancestors are listed first, indicating their importance?",The two ancestors listed first are David and Abraham.
+1:16,vey7,,,0,"At the end of the genealogy, who is the wife that is named, and why is she listed?","Mary, the wife of Joseph, is listed because by her Jesus was born."
+1:18,yex8,,,0,What happened to Mary before she had come together with Joseph?,Mary became pregnant by the Holy Spirit before she had come together with Joseph.
+1:19,tu3d,,,0,What kind of man was Joseph?,Joseph was a righteous man.
+1:19,xrzl,,,0,What did Joseph decide to do when he learned Mary was pregnant?,Joseph decided to end the engagement with Mary secretly.
+1:20,wuf6,,,0,What happened to Joseph that made him decide to remain engaged to Mary?,An angel told Joseph in a dream to take Mary as his wife because the baby was conceived by the Holy Spirit.
+1:21,sz7n,,,0,Why was Joseph told to give the baby the name Jesus?,Joseph was told to name the baby Jesus because he will save his people from their sins.
+1:23,hqo8,,,0,What is written in the Old Testament prophecy which was fulfilled in these events?,"The Old Testament prophecy was that a virgin would give birth to a son and that they would call his name Emmanuel, which means “God with us.”"
+1:25,keii,,,0,What was Joseph careful not to do until Mary gave birth to Jesus?,Joseph was careful not to sleep with Mary until she gave birth to Jesus.
+2:1,yxb0,,,0,Where was Jesus born?,Jesus was born in Bethlehem of Judea.
+2:2,be08,,,0,What title did the learned men from the east give to Jesus?,The learned men from the east gave Jesus the title “King of the Jews.”
+2:2,jrcn,,,0,How did the learned men know the King of the Jews had been born?,The learned men had seen the star of the King of the Jews in the east.
+2:3,wupq,,,0,How did King Herod respond to the news from the learned men?,"When King Herod heard the news from the learned men, he was troubled."
+2:5-6,mk3s,,,0,How did the chief priests and scribes know where the Christ would be born?,They knew the prophecy that said the Christ would be born in Bethlehem.
+2:9,t6q7,,,0,How did the learned men find exactly where Jesus was?,The star in the east went before them until it stood over where Jesus was.
+2:11,g4rc,,,0,How old was Jesus when the learned men came to see him?,Jesus was a young child when the learned men came to see him.
+2:11,y31m,,,0,What gifts did the learned men give to Jesus?,"The learned men gave to Jesus gifts of gold, frankincense, and myrrh."
+2:12,fqou,,,0,"By what way did the learned men return home, and why did they go this way?",The learned men returned home another way because God warned them in a dream not to return to Herod.
+2:13,dzal,,,0,What instructions did Joseph receive in a dream?,Joseph was instructed in a dream to take Jesus and Mary and flee to Egypt because Herod was going to try to kill Jesus.
+2:15,knfb,,,0,What prophecy was fulfilled by Jesus’ later return from Egypt?,"The prophecy, “Out of Egypt I have called my son” was fulfilled when Jesus later returned from Egypt."
+2:16,o05g,,,0,What did Herod do when the learned men did not return to him?,Herod killed all the male children in the region of Bethlehem who were two years old or younger.
+2:19-20,ozgy,,,0,What instructions did Joseph receive in a dream after Herod died?,Joseph was instructed in a dream to return to the land of Israel.
+2:22-23,bjy2,,,0,Where did Joseph settle to live with Mary and Jesus?,Joseph settled to live with Mary and Jesus in Nazareth of Galilee.
+2:23,v8a4,,,0,What prophecy was fulfilled when Joseph moved to their new location?,The prophecy that the Christ would be called a Nazarene was fulfilled.
+3:2,yrif,,,0,What was the message that John the Baptist preached in the wilderness?,"John preached, “Repent, for the kingdom of heaven is near.”"
+3:3,syhu,,,0,What did the prophecy from Isaiah say that John the Baptist would come to do?,The prophecy said that John the Baptist warn people to make ready the way of the Lord.
+3:6,scs9,,,0,What did the people do as they were baptized by John?,"As they were baptized, the people confessed their sins."
+3:8,ifo4,,,0,What did John the Baptist tell the Pharisees and Sadducees to do?,John the Baptist told the Pharisees and Sadducees to bear fruit worthy of repentance.
+3:9,xhzh,,,0,What did John the Baptist warn the Pharisees and Sadducees not to think among themselves?,John warned the Pharisees and Sadducees not to think among themselves that they had Abraham as their father.
+3:10,xnsa,,,0,"According to John, what happens to every tree that does not produce good fruit?",John says that every tree that does not bear good fruit is chopped down and thrown into the fire.
+3:11,uhbl,,,0,How will the one who was coming after John baptize?,The one who was coming after John will baptize with the Holy Spirit and fire.
+3:15,ym2n,,,0,What did Jesus say to John that convinced John to baptize Jesus?,Jesus said that it was right for John to baptize Jesus in order to fulfill all righteousness.
+3:16,sxkf,,,0,What did Jesus see when he came up from the water?,"When he came up from the water, Jesus saw the Spirit of God descending as a dove and resting on him."
+3:17,ay86,,,0,What did the voice from heaven say after Jesus was baptized?,"The voice from heaven said, “This is my beloved Son, with whom I am well pleased.”"
+4:1,gqn9,,,0,Who led Jesus into the wilderness to be tempted by the devil?,The Holy Spirit led Jesus into the wilderness to be tempted by the devil.
+4:2,zpk7,,,0,How long did Jesus fast in the wilderness?,Jesus fasted 40 days and 40 nights in the wilderness.
+4:3,y3rx,,,0,What was the first temptation that the devil presented to Jesus?,The devil tempted Jesus to turn stones into bread.
+4:4,tnh8,,,0,What was Jesus’ answer to the first temptation?,"Jesus said that man will not live by bread alone, but by every word that comes out of the mouth of God."
+4:5-6,wdbz,,,0,What was the second temptation that the devil presented to Jesus?,The devil tempted Jesus to throw himself down from the temple.
+4:7,e1zm,,,0,What was Jesus’ answer to the second temptation?,Jesus said that you must not test the Lord your God.
+4:8-9,vmo7,,,0,What was the third temptation that the devil presented to Jesus?,The devil tempted Jesus to worship him in return for all the kingdoms of the world.
+4:10,w6c0,,,0,What was Jesus’ answer to the third temptation?,Jesus said that you must worship the Lord your God and must serve him only.
+4:15-16,repn,,,0,What was fulfilled by Jesus’ move to Capernaum in Galilee?,The prophecy of Isaiah was fulfilled which said that the people in Galilee would see a great light.
+4:17,nlu9,,,0,What message did Jesus then begin to preach?,"Jesus preached, “Repent, for the kingdom of heaven has drawn near.”"
+4:18,sxgw,,,0,How did Peter and Andrew make their living?,Peter and Andrew were fisherman.
+4:19,p6f9,,,0,What did Jesus say he would make Peter and Andrew?,Jesus said that he would make Peter and Andrew fishers of men.
+4:21,ixuu,,,0,How did James and John make their living?,James and John were fisherman.
+4:23,m2da,,,0,"At this time, where did Jesus go to teach?",Jesus taught in the synagogues of Galilee.
+4:24,ozsj,,,0,"What kind of people were brought to Jesus, and what did Jesus do with them?","All those who were sick and demon possessed were brought to Jesus, and Jesus healed them."
+4:25,pmkg,,,0,How many people were following Jesus at this time?,Great multitudes were following Jesus at this time.
+5:3,ag3n,,,0,Why are the poor in spirit blessed?,The poor in spirit are blessed because theirs is the kingdom of heaven.
+5:4,n14d,,,0,Why are those who mourn blessed?,Those who mourn are blessed because they will be comforted.
+5:5,o8cp,,,0,Why are the meek blessed?,The meek are blessed because they will inherit the earth.
+5:6,jdok,,,0,Why are those who hunger and thirst for righteousness blessed?,Those who hunger and thirst for righteousness are blessed because they will be filled.
+5:11-12,bzpk,,,0,Why are those who are insulted and persecuted for Jesus’ sake blessed?,Those who are insulted and persecuted for Jesus’ sake are blessed because great is their reward in heaven.
+5:15-16,nton,,,0,How do believers let their light shine before people?,Believers let their light shine before people by doing good deeds.
+5:17,m45b,,,0,What did Jesus come to do with the law and the prophets of the Old Testament?,Jesus came to fulfill the law and the prophets of the Old Testament.
+5:19,cpsi,,,0,Who will be called great in the kingdom of heaven?,Those who keep God’s commandments and who teach them to others will be called great in the kingdom of heaven.
+5:21-22,hm97,,,0,"Jesus taught that not only those who murder are in danger of the judgment, but also those who do what?","Jesus taught that not only those who murder, but also those who are angry with their brother are in danger of the judgment."
+5:23-24,smqo,,,0,What did Jesus teach we should do if our brother has anything against us?,Jesus taught that we should go and be reconciled to our brother if he has anything against us.
+5:25,hrzt,,,0,What did Jesus teach we should do with our accuser before reaching court?,Jesus taught that we should try to come to an agreement with our accuser before reaching court.
+5:27-28,ncer,,,0,"Jesus taught that it was not only wrong to commit adultery, but also to do what?","Jesus taught that it was not only wrong to commit adultery, but also to lust after a woman."
+5:29-30,v31v,,,0,What did Jesus say we must do with anything that causes us to sin?,Jesus said that we must get rid of anything that causes us to sin.
+5:32,ulyk,,,0,For what cause did Jesus allow divorce?,For the cause of sexual immorality did Jesus allow divorce.
+5:32,y1kc,,,0,What does a husband cause his wife to become if he divorces her wrongly and she remarries?,A husband causes his wife to become an adulteress if he divorces her wrongly and she remarries.
+5:37,lkhu,,,0,"Instead of swearing oaths to various earthly things, what does Jesus say our speech should be like?","Jesus says that instead of swearing oaths by all these things we should let our speech be, “Yes, yes,” or “No, no.”"
+5:38-39,dc0m,,,0,What did Jesus teach we should do with one who is evil toward us?,Jesus taught that we should not resist one who is evil toward us.
+5:43-44,tzwh,,,0,What did Jesus teach we should do with our enemies and with those who persecute us?,Jesus taught that we should love and pray for our enemies and for those who persecute us.
+5:46-47,z9fk,,,0,"Why did Jesus say that we must not only love those who love us, but also love our enemies?","Jesus said that if we only love those who love us, we do not receive a reward because we are only doing what the Gentiles already do."
+6:2,dugw,,,0,What is the reward of those who do their acts of righteousness to be seen by people?,Those who do their acts of righteousness to be seen by people receive the praise of people as their reward.
+6:3-4,nwuq,,,0,How should we do our acts of righteousness in order to be rewarded by the Father?,We should do our acts of righteousness in private.
+6:5,nrrh,,,0,What reward do those receive who are hypocrites praying to be seen by people?,Those who are hypocrites praying to be seen by people receive their reward from people.
+6:6,j30d,,,0,Those who pray in private receive a reward from whom?,Those who pray in private receive a reward from the Father.
+6:7-8,pr6e,,,0,Why does Jesus say we should not pray with useless repetitions?,Jesus says we should not pray with useless repetitions because the Father knows what we need before we ask him.
+6:10,k776,,,0,Where should we ask the Father that his will be done?,"We should ask the Father that his will be done on earth, as it is already done in heaven."
+6:15,pa2i,,,0,"If we do not forgive others of their debts to us, what will the Father do?","If we do not forgive others of their debts to us, the Father will not forgive our debts."
+6:16-18,ncwu,,,0,How should we fast so that we receive a reward from the Father?,"We should fast without appearing to people as fasting, and then the Father will reward us."
+6:19-20,oghj,,,0,"Where should we store up treasure, and why?","We should store up treasure in heaven, because it cannot be destroyed or stolen there."
+6:21,qstf,,,0,What will be where our treasure is?,Our heart will be where our treasure is.
+6:24,mi47,,,0,Which two masters must we choose between?,We must choose between God and wealth as our masters.
+6:25-26,zm5x,,,0,"Why should we not worry about food, drink, and clothes?","We should not worry about food, drink, and clothes because the Father even takes care of the birds, and we are of much more value than they."
+6:27,x4ew,,,0,What does Jesus remind us we cannot do by being anxious?,Jesus reminds us that we cannot add one cubit to our lifespan by being anxious.
+6:33,rbf5,,,0,"What must we seek first, and all our earthly needs will then be provided?","We must seek first the kingdom and the Father’s righteousness, and then all our earthly needs will be provided."
+7:3-5,ku6c,,,0,What must we do first before we can clearly see to help our brother?,We must first judge ourselves and remove the log from our own eye before we can help our brother.
+7:6,jard,,,0,What may happen if you give what is holy to the dogs?,"If you give what is holy to the dogs, they may trample it and then turn and tear you to pieces."
+7:8,i55x,,,0,What must we do to receive from the Father?,"We must ask, seek, and knock in order to receive from the Father."
+7:11,at3q,,,0,What does the Father give to those who ask him?,The Father gives good things to those who ask him.
+7:12,by0j,,,0,What do the law and the prophets teach us about how to treat others?,The law and prophets teach us to do to others what we want people to do to us.
+7:13,cj0y,,,0,To what does the broad way lead?,The broad way leads to destruction.
+7:14,r0pt,,,0,To what does the narrow way lead?,The narrow way leads to life.
+7:15-16,rrfw,,,0,How can we recognize false prophets?,We can recognize false prophets by the fruit of their lives.
+7:21,ua6l,,,0,Who will enter into the kingdom of heaven?,Those who do the will of the Father will enter the kingdom of heaven.
+7:22-23,uvqb,,,0,"What will Jesus say to many who have prophesied, driven out demons, and done miracles in Jesus’ name?","Jesus will say to them, “I never knew you! Get away from me, you evil-doers”!"
+7:24,spf7,,,0,Who is like the wise man in Jesus’ parable of the two houses?,One who hears Jesus’ words and obeys them is like the wise man.
+7:26,xg7q,,,0,Who is like the foolish man in Jesus’ parable of the two houses?,One who hears Jesus’ words and does not obey them is like the foolish man.
+7:29,kq7z,,,0,How did Jesus teach the people compared to how the scribes taught?,"Jesus taught the people as one who had authority, not as the scribes taught."
+8:4,is9n,,,0,Why did Jesus say the healed leper should go to the priest and offer the gift Moses commanded?,Jesus told the healed leper to go to the priest for a testimony to them.
+8:7,uzzf,,,0,What did Jesus say he would do when the centurion told him about his paralyzed servant?,Jesus said he would go to the centurion’s house and heal the servant.
+8:8,sg0e,,,0,Why did the centurion say that Jesus did not need to come to his house?,"The centurion said that he was not worthy to have Jesus in his house, and that Jesus could just say the word and heal the servant."
+8:10,lf97,,,0,What compliment did Jesus give the centurion?,Jesus said that not even in Israel had he found anyone with so much faith as the centurion.
+8:11,mu6e,,,0,Who did Jesus say would come and recline at table in the kingdom of heaven?,Jesus said that many would come from the east and the west and recline at table in the kingdom of heaven.
+8:12,xrku,,,0,Who did Jesus say would be thrown into outer darkness where there is weeping and gnashing of teeth?,Jesus said that the sons of the kingdom would be thrown into outer darkness.
+8:14-15,x9m7,,,0,Who did Jesus heal when he entered Peter’s house?,Jesus healed Peter’s mother-in-law when he entered Peter’s house.
+8:17,bv35,,,0,What prophecy from Isaiah was fulfilled as Jesus healed all who were demon-possessed and sick?,"Isaiah’s prophecy, “He himself took our sickness and bore our diseases,” was fulfilled."
+8:20,y409,,,0,What did Jesus say about the way he lived when the scribe asked to follow him?,Jesus said that he had no permanent home.
+8:21-22,oarx,,,0,"When a disciple asked to go bury his father before following Jesus, what did Jesus say?","Jesus told the disciple to follow him, and to leave the dead to bury their own dead."
+8:24,xuks,,,0,What was Jesus doing in the boat when the great storm arose on the sea?,Jesus was sleeping when the great storm arose on the sea.
+8:26,eu1p,,,0,"When the disciples woke Jesus up because they were afraid of dying, what did Jesus say to them?","Jesus said to the disciples, “Why are you afraid, you of little faith?”"
+8:27,bn5m,,,0,Why were the disciples marveling at Jesus after there was calm?,The disciples marveled at Jesus because the winds and the sea obeyed him.
+8:28,mfbz,,,0,What kind of men met Jesus when he came to the country of the Gadarenes?,Jesus met two demon-possessed men who were very violent.
+8:29,reg0,,,0,What was the concern of the demons speaking through the men to Jesus?,The demons were concerned that Jesus had come to torment them before the set time.
+8:32,sbbw,,,0,What happened when Jesus cast out the demons?,"When Jesus cast out the demons, they entered a herd of pigs and the pigs rushed into the sea and perished."
+8:34,zbet,,,0,What did the people beg Jesus to do when they came out of the city to meet him?,The people begged Jesus to leave their region.
+9:3-5,h9jo,,,0,Why did some of the scribes think that Jesus was blaspheming God?,Some of the scribes thought that Jesus was blaspheming God because Jesus told the paralyzed man that his sins were forgiven.
+9:5-6,zvj3,,,0,"Why did Jesus say he had told the paralytic that his sins were forgiven, instead of telling him to get up and walk?",Jesus had told the paralytic that his sins were forgiven to demonstrate that he had authority on earth to forgive sins.
+9:8,y0xp,,,0,Why did the people praise God when they saw the paralytic man’s sins forgiven and his body healed?,"They were overawed and praised God, who had given such authority to men."
+9:9,sno9,,,0,What was Matthew’s occupation before he followed Jesus?,Matthew was a tax collector before he followed Jesus.
+9:10,uv4o,,,0,With whom did Jesus and his disciples eat?,Jesus and his disciples ate with tax collectors and sinful people.
+9:13,cqos,,,0,Who did Jesus say he came to call to repentance?,Jesus said he came to call sinners to repentance.
+9:15,wjy3,,,0,Why did Jesus say his disciples were not fasting?,Jesus said his disciples were not fasting because he was still with them.
+9:15,qh9c,,,0,When did Jesus say his disciples would fast?,Jesus said his disciples would fast when he was taken away from them.
+9:20-21,vtmg,,,0,"What did the woman with severe bleeding do, and why?","The woman with severe bleeding touched the edge of Jesus’ garment thinking that if she only touched his garment, she would be made well."
+9:22,adih,,,0,What did Jesus say had made the woman with severe bleeding well?,Jesus said that the woman with severe bleeding had been made well by her faith.
+9:24,tsrx,,,0,Why did the people laugh at Jesus when he entered the Jewish official’s house?,"The people laughed at Jesus because Jesus said that the girl was not dead, but sleeping."
+9:26,puh6,,,0,What happened after Jesus raised the girl from the dead?,News about Jesus raising the girl from the dead spread into all that region.
+9:27,uu6g,,,0,What did the two blind men keep shouting at Jesus?,"The two blind men kept shouting, “Have mercy on us, Son of David”!"
+9:29,ssy6,,,0,Jesus healed the two blind men according to what?,Jesus healed the two blind men according to their faith.
+9:34,w4wg,,,0,"After Jesus healed the mute man, what accusation did the Pharisees make against him?",The Pharisees accused Jesus of driving out demons by the ruler of demons.
+9:36,d3m6,,,0,Why did Jesus have compassion on the crowds?,"Jesus had compassion on the crowds because they were worried and confused, and were like sheep without a shepherd."
+9:38,f4i0,,,0,For what did Jesus tell his disciples to pray urgently?,Jesus told his disciples to pray urgently that the Lord of the harvest send out laborers into his harvest.
+10:1,qja5,,,0,What authority did Jesus give his twelve disciples?,"Jesus gave his twelve disciples authority to drive out unclean spirits, and to heal all kinds of diseases."
+10:4,zmgs,,,0,What is the name of the disciple who would betray Jesus?,The name of the disciple who would betray Jesus was Judas Iscariot.
+10:6,mn04,,,0,Where did Jesus send his disciples at this time?,Jesus sent his disciples only to the lost sheep of the house of Israel.
+10:9-10,w375,,,0,Were the disciples to carry any money or extra clothes with them?,"No, the disciples were not to carry any money or extra clothes with them."
+10:11,ea4v,,,0,Where were the disciples to stay when they went from village to village?,The disciples were to find someone worthy in the village and stay there until they left.
+10:14-15,zwvq,,,0,What would be the judgment on the cities that did not receive the disciples or listen to their words?,The judgment on the cities that did not receive the disciples or listen to their words would be worse than the judgment on Sodom and Gomorrah.
+10:17-18,c8xc,,,0,What did Jesus say people would do to the disciples?,"Jesus said that people would deliver the disciples up to councils, whip them, and bring them before governors and kings."
+10:20,x3d6,,,0,Who would speak through the disciples when they were delivered up?,The Spirit of the Father would speak through the disciples when they were delivered up.
+10:22,ku49,,,0,Who did Jesus say would be saved in the end?,Jesus said that those who endure to the end will be saved.
+10:24-25,ush3,,,0,How would those who hated Jesus treat Jesus’ disciples?,Those who hated Jesus would also hate his disciples.
+10:28,abh9,,,0,Who did Jesus say we are not to fear?,We are not to fear those who kill the body but are unable to kill the soul.
+10:28,ykel,,,0,Who did Jesus say we are to fear?,We are to fear him who is able to destroy both soul and body in hell.
+10:32,b6b3,,,0,What will Jesus do for everyone who confesses him before men?,Jesus will confess him before the Father in heaven.
+10:33,yncm,,,0,What will Jesus do for everyone who denies him before men?,Jesus will deny him before the Father in heaven.
+10:34-36,tpdz,,,0,What kind of divisions did Jesus say he came to bring?,Jesus said that he came to bring divisions even within households.
+10:39,mi0f,,,0,What will someone find who loses his life for Jesus’ sake?,Someone who loses his life for Jesus’ sake will find his life.
+10:42,emm9,,,0,What will someone receive who gives even a cup of cold water to an unimportant disciple?,Someone who gives even a cup of cold water to an unimportant disciple will receive his reward.
+11:1,dxwi,,,0,What did Jesus finish before he departed to teach and preach in the cities?,Jesus finished instructing his 12 disciples before he departed.
+11:3,s3sa,,,0,What was the message John the Baptist sent to Jesus?,"John the Baptist sent the message, “Are you the Coming One, or is there another person we should be looking for?”"
+11:5,d3vy,,,0,What did Jesus say was happening as evidence that he was the Coming One?,"Jesus said the sick were being healed, the dead were being raised, and the needy were being told the good news."
+11:6,atln,,,0,What did Jesus promise for those who found no occasion of stumbling in him?,Jesus promised a blessing for those who found no occasion of stumbling in him.
+11:9-10,e8eo,,,0,What did Jesus say was the role John the Baptist played in his life?,Jesus said that John the Baptist was the prophesied messenger who would prepare the way before the Coming One.
+11:14,jbbu,,,0,Who did Jesus say that John the Baptist was?,Jesus said that John the Baptist was Elijah.
+11:18,k0mi,,,0,What did that generation say about John the Baptist who came not eating bread or drinking wine?,That generation said that John the Baptist had a demon.
+11:19,njgt,,,0,What did that generation say about Jesus who came eating and drinking?,"That generation said that Jesus was a glutton and a drunkard, and a friend of tax collectors and sinners."
+11:20,wf32,,,0,"What did Jesus declare regarding the cities where his great deeds were done, yet they had not repented?","Jesus rebuked the cities where his great deeds were, yet they had not repented."
+11:25,drfx,,,0,Jesus praised the Father for concealing the kingdom of heaven from whom?,Jesus praised the Father for concealing the kingdom of heaven from the wise and understanding.
+11:25,njt7,,,0,Jesus praised the Father for revealing the kingdom of heaven to whom?,"Jesus praised the Father for revealing the kingdom of heaven to those who were untaught, like little children."
+11:27,wma4,,,0,Who did Jesus say knows the Father?,"Jesus said that he knows the Father, and anyone to whom he desires to reveal him."
+11:28,nbjh,,,0,To whom did Jesus promise rest?,Jesus promised rest to all who labor and are heavy burdened.
+12:2,b9vr,,,0,What were Jesus’ disciples doing that the Pharisees complained about to him?,"The Pharisees complained that Jesus’ disciples were plucking heads of grain and eating them, which they believed was unlawful to do on the Sabbath."
+12:6,ug3r,,,0,Who did Jesus say was greater than the temple?,Jesus said that he was greater than the temple.
+12:8,nz6q,,,0,"What authority does the Son of Man, Jesus, have?","The Son of Man, Jesus, is Lord of the Sabbath."
+12:10,lthc,,,0,What question did the Pharisees ask Jesus in the synagogue in front of the man with the dried up hand?,"The Pharisees asked Jesus, “Is it lawful to heal on the Sabbath?”"
+12:12,wtgd,,,0,What did Jesus say it was lawful to do on the Sabbath?,Jesus said it was lawful to do good on the Sabbath.
+12:14,ese2,,,0,"When the Pharisees saw Jesus heal the man with the dried up hand, what did they do?",The Pharisees went out and plotted against him and seeking how they might destroy him.
+12:18,fy8x,,,0,"In Isaiah’s prophecy about Jesus, who would hear God’s judgment and have confidence in Jesus?",The Gentiles would hear God’s judgment and have confidence in Jesus.
+12:19-20,my7x,,,0,"In Isaiah’s prophecy about Jesus, what would Jesus not do?","Jesus would not strive, cry aloud, break a bruised reed, or quench smoking flax."
+12:26,u3mb,,,0,How did Jesus respond to the accusation that he cast out demons by Beelzebub?,"Jesus said that if Satan drives out Satan, then how will Satan’s kingdom stand."
+12:28,jfrx,,,0,What did Jesus say was happening if he was driving out demons by the Spirit of God?,Jesus said that the kingdom of God had come upon them if he was driving out demons by the Spirit of God.
+12:31,j3mo,,,0,Which sin did Jesus say will not be forgiven?,Jesus said that blasphemy against the Spirit will not be forgiven.
+12:33,kp5v,,,0,By what is a tree known?,A tree is known by its fruit.
+12:37,uz3e,,,0,By what did Jesus say the Pharisees would be justified and condemned?,Jesus said that the Pharisees would be justified and condemned by their words.
+12:39-40,glyv,,,0,What sign did Jesus say he would give his generation?,"Jesus said he would give his generation the sign of Jonah, being in the heart of the earth three days and three nights."
+12:41,w241,,,0,Who did Jesus say was greater than Jonah?,Jesus said that he was greater than Jonah.
+12:41,c6ii,,,0,Why will the men of Nineveh condemn the people of Jesus’ generation?,"The men of Nineveh will condemn Jesus’ generation because they listened to God’s word through Jonah, but Jesus’ generation did not even listen to the Son of Man, who is greater than Jonah."
+12:42,nz4k,,,0,Who did Jesus say was greater than Solomon?,Jesus said that he was greater than Solomon.
+12:43-45,urab,,,0,How will Jesus’ generation be like a man who has an unclean spirit go away from him?,"Jesus’ generation will be like a man who has an unclean spirit go away from him, because the unclean spirit returns with seven other spirits and the final condition of the man becomes worse than the first."
+12:48-50,ibo0,,,0,"Who did Jesus say are his brother, sister, and mother?","Jesus said that those who do the will of the Father are his brother, sister, and mother."
+13:4,lc0c,,,0,"In Jesus’ parable of the sower, what happened to the seed that fell on the wayside?",The seed that fell on the wayside was devoured by the birds.
+13:5-6,tuku,,,0,"In Jesus’ parable of the sower, what happened to the seed that fell on rocky ground?","The seed that fell on rocky ground immediately sprang up quickly, but was scorched by the sun and withered away."
+13:7,elzi,,,0,"In Jesus’ parable of the sower, what happened to the seed that fell among the thorn plants?",The seed that fell among the thorn plants was choked by the thorn plants.
+13:8,c99d,,,0,"In Jesus’ parable of the sower, what happened to the seed that fell on good soil?","The seed that fell on good soil produced grain, some 100 times as much, some 60, and some 30."
+13:14,bkiz,,,0,"Isaiah’s prophecy said that the people would hear and see, but not what?","Isaiah’s prophecy said that the people would hear, but would not understand; they would see, but in no way perceive."
+13:15,yyfo,,,0,What was wrong with the people who heard Jesus but did not understand?,"The people who heard Jesus but did not understand had dull hearts, were heavy of hearing, and had closed their eyes."
+13:19,fldn,,,0,"In the parable of the sower, what kind of person is the seed sown on the wayside?",The seed sown on the wayside is the person who hears the word of the kingdom but does not understand it; then the evil one comes and snatches away what has been sown in his heart.
+13:20-21,tqa2,,,0,"In the parable of the sower, what kind of person is the seed sown on the rocky ground?","The seed sown on the rocky ground is the person who hears the word and receives it with joy immediately, but stumbles immediately when persecution arises."
+13:22,v368,,,0,"In the parable of the sower, what kind of person is the seed sown among the thorn plants?","The seed sown among the thorn plants is the person who hears the word, but the cares of the world and the deceitfulness of riches choke the word."
+13:23,xlyu,,,0,"In the parable of the sower, what kind of person is the seed sown on the good soil?","The seed sown on the good soil is the person who hears the word and understands it, and then produces fruit."
+13:28,jliy,,,0,"In the parable of the weeds, who sowed the weeds in the field?",An enemy sowed the weeds in the field.
+13:30,fcka,,,0,What instructions did the landowner give the servants about the weeds and the wheat?,"The landowner told the servants to let both grow together until the harvest, and then to gather the weeds to be burned, and the wheat into the barn."
+13:31-32,uw30,,,0,"In Jesus’ parable of the mustard seed, what happens to the tiny mustard seed?",The mustard seed becomes a tree greater than the garden plants so that the birds nest in its branches.
+13:33,f6ro,,,0,How did Jesus say the kingdom of heaven was like yeast?,Jesus said that the kingdom of heaven was like yeast which was mixed with three measures of flour until it rose.
+13:37-39,m71l,,,0,"In the parable of the weeds, who sows the good seed, what is the field, who is the good seed, who are the weeds, and who sowed the weeds?","The sower of the good seed is the Son of Man; the field is the world; the good seed are the sons of the kingdom; the weeds are the sons of the evil one, and the sower of the weeds is the devil."
+13:39,w09v,,,0,"In the parable of the weeds, who are the reapers and what does the harvest represent?","The reapers are the angels, and the harvest is the end of the world."
+13:42,yrex,,,0,What happens at the end of the world to those who commit iniquity?,"At the end of the world, those who commit iniquity are thrown into the furnace of fire."
+13:43,g76c,,,0,What happens at the end of the world to those who are righteous?,"At the end of the world, the righteous shine forth like the sun."
+13:44,foh7,,,0,"In Jesus’ parable, what does the man do who finds in a field the treasure, which represents the kingdom of heaven?",The man who finds the treasure sells everything he possesses and buys the field.
+13:45-46,qu33,,,0,"In Jesus’ parable, what does the man do who finds the one pearl of great value, which represents the kingdom of heaven?",The man who finds the one pearl of great value sells everything that he possesses and buys it.
+13:47-48,oy9w,,,0,How is the parable of the fishing net like what will happen at the end of the world?,"Just as the worthless things from the net were separated from the good and thrown away, at the end of the world the wicked will be separated from the righteous and thrown into the furnace."
+13:54,ra3l,,,0,What question did the people from his own region ask about Jesus when they heard Jesus teach?,"The people asked, “Where does this man get his wisdom from, and these miracles?”"
+13:57,q0bi,,,0,What did Jesus say happens to a prophet in his own country?,Jesus said that a prophet is without honor in his own country.
+13:58,ghor,,,0,What happened in Jesus’ own region because of the people’s unbelief?,"Because of the people’s unbelief, Jesus did not do many miracles in his own region."
+14:2,ebi1,,,0,Who did Herod think Jesus was?,Herod thought Jesus was John the Baptist risen from the dead.
+14:4,y1zc,,,0,"What had Herod done unlawfully, about which John the Baptist told him?",Herod had married his brother’s wife.
+14:5,frn8,,,0,Why did Herod not immediately put John the Baptist to death?,"Herod did not immediately put John the Baptist to death because he feared the people, who regarded John as a prophet."
+14:7,hktz,,,0,What did Herod do after the daughter of Herodias danced for him on his birthday?,Herod promised with an oath to give the daughter of Herodias whatever she should ask.
+14:8,u0vg,,,0,For what did the daughter of Herodias ask?,"To please her mother, she asked for the head of John the Baptist upon a platter."
+14:9,cly0,,,0,Why did Herod give the daughter of Herodias her request?,Herod gave the girl her request because of his oath and because of all the people at dinner with him.
+14:14,vv61,,,0,What was Jesus’ reaction when he saw the large crowd following him?,Jesus had compassion on them and healed their sick.
+14:16,dwt7,,,0,What did Jesus challenge his disciples to do for the crowd?,Jesus challenged his disciples to give the crowd something to eat.
+14:19,tk14,,,0,What did Jesus do with the five loaves and the two fish the disciples brought to him?,"Jesus looked up to heaven, blessed and broke the loaves and gave them to the disciples to give to the crowd."
+14:20-21,a6ku,,,0,"How many people ate, and how much food was left over?","About five thousand men ate plus women and children, and there were twelve baskets left over."
+14:23,hjy8,,,0,What did Jesus do after he sent the crowd away?,Jesus went up on the mountain to pray by himself.
+14:24,bcil,,,0,What was happening with the disciples in the midst of the sea?,The disciples’ boat was almost uncontrollable because of the wind and waves.
+14:25,abkd,,,0,How did Jesus go to the disciples?,Jesus went to the disciples by walking on the water.
+14:27,mnxr,,,0,What did Jesus tell the disciples when they saw him?,Jesus told his disciples to be brave and to not be afraid.
+14:29,q6ro,,,0,What did Jesus tell Peter to come and do?,Jesus told Peter to come and walk on the water.
+14:30,flxj,,,0,Why did Peter begin to sink into the water?,Peter began to sink into the water when he became afraid.
+14:32,uxbd,,,0,What happened when Jesus and Peter went into the boat?,"When Peter and Jesus went into the boat, the wind ceased blowing."
+14:33,gme8,,,0,What did the disciples do when they saw this?,"When the disciples saw this, they worshiped Jesus and said that he was the Son of God."
+14:35,ha1b,,,0,What did the people do when Jesus and the disciples got to the other side of the sea?,"When Jesus and the disciples got to the other side of the sea, the people brought to Jesus all who were sick."
+15:4-6,kbm1,,,0,What example did Jesus give of how did the Pharisees made void the word of God by their traditions?,The Pharisees prevented children from helping their parents by taking the money as a “gift given to God.”
+15:7-8,amuf,,,0,What did Isaiah prophecy about the Pharisees’ lips and hearts?,"Isaiah prophesied that the Pharisees would honor God with their lips, but their heart would be far from God."
+15:9,dg7a,,,0,"Instead of teaching the word of God, what were the Pharisees teaching as doctrine?",The Pharisees were teaching as doctrines the commands of people.
+15:11,yxv2,,,0,What did Jesus say does not defile a person?,Jesus said that what a person eats does not defile a person.
+15:11,byim,,,0,What did Jesus say does defile a person?,Jesus said that what comes out of a person’s mouth defiles a person.
+15:14,xiwl,,,0,"What did Jesus call the Pharisees, and what did he say would happen to them?",Jesus called the Pharisees blind guides and said that they would fall into a pit.
+15:19,yur6,,,0,"What kinds of things proceed from the heart, which defile a person?","From the heart proceeds evil thoughts, murder, adultery, sexual immorality, theft, false witness, and insults."
+15:23,watr,,,0,What did Jesus do at first when the Canaanite woman shouted out to him for mercy?,Jesus answered her not a word.
+15:24,xjgb,,,0,What was Jesus’ explanation of why he was not helping the Canaanite woman?,Jesus explained that he had been sent only to the lost sheep of the house of Israel.
+15:28,zncr,,,0,"When the Canaanite woman humbled herself, what did Jesus say to her and do for her?","Jesus said that the woman had great faith, and he granted her her request."
+15:30-31,e7j2,,,0,What did Jesus do for the large crowds that came to him in Galilee?,"Jesus healed the mute, the crippled, the lame, and the blind."
+15:34,wkwe,,,0,How many loaves and fish did the disciples have to feed the crowd?,"The disciples had seven loaves, and a few small fish."
+15:36,ewi3,,,0,What did Jesus do with the loaves and fish?,"Jesus took the loaves and the fish, gave thanks, broke the loaves and gave them to his disciples."
+15:37,hcz5,,,0,How much food was left over after everyone ate?,There were seven baskets full remaining after everyone ate.
+15:38,uge9,,,0,How many people ate and were satisfied from the loaves and fish?,"There were 4,000 men, plus women and children, who ate and were satisfied."
+16:1,vx8n,,,0,What did the Pharisees and Sadducees want to see from Jesus as a test?,The Pharisees and Sadducees wanted to see a sign from heaven from Jesus.
+16:4,bum4,,,0,What did Jesus say he would give the Pharisees and Sadducees?,Jesus said he would give the Pharisees and Sadducees the sign of Jonah.
+16:6,i9u9,,,0,Of what did Jesus tell his disciples to beware?,Jesus told his disciples to beware the yeast of the Pharisees and Sadducees.
+16:12,yvi6,,,0,About what was Jesus actually talking when he told his disciples to beware?,Jesus was telling his disciples to beware of the teaching of the Pharisees and Sadducees.
+16:13,x5ip,,,0,What question did Jesus ask his disciples when they came to Caesarea Philippi?,"Jesus asked his disciples, “Who do people say that the Son of Man is?”"
+16:14,v2a7,,,0,Who did some people think that Jesus was?,"Some people thought that Jesus was John the Baptist, or Elijah, or Jeremiah, or one of the prophets."
+16:16,qv7b,,,0,What answer did Peter give to Jesus’ question?,"Peter answered, “You are the Christ, the Son of the Living God.”"
+16:17,sl62,,,0,How did Peter know the answer to Jesus’ question?,Peter knew the answer to Jesus’ question because the Father had revealed it to him.
+16:19,fng0,,,0,What authority did Jesus give to Peter on earth?,"Jesus gave to Peter the keys of the kingdom, so that he could bind and loose on earth and it would be bound or loosed in heaven."
+16:21,mmxe,,,0,"At this time, what did Jesus begin to tell his disciples plainly?","Jesus began to tell his disciples that he must go to Jerusalem, suffer many things, be killed, and be raised on the third day."
+16:23,e8xh,,,0,What did Jesus tell Peter when Peter objected to what Jesus was describing would happen to him?,"Jesus said to Peter, “Get behind me, Satan”!"
+16:24,wd7b,,,0,What must anyone do who wants to follow Jesus?,"Anyone who wants to follow Jesus must deny himself, and take up his cross."
+16:26,jnyf,,,0,What did Jesus say does not profit a man?,"Jesus said that it does not profit a man to gain the whole world, but to forfeit his life."
+16:27,cure,,,0,How did Jesus say the Son of Man will come?,Jesus said the Son of Man would come in the glory of his Father with his angels.
+16:27,sylj,,,0,How will the Son of Man reward every person when he comes?,The Son of Man will reward every person according to his deeds when he comes.
+16:28,nghg,,,0,Who did Jesus say would see the Son of Man coming in his kingdom?,Jesus said that some standing there with him would see the Son of Man coming in his kingdom.
+17:1,q7ru,,,0,Who went with Jesus up on a high mountain?,"Peter, James, and John went with Jesus up on a high mountain."
+17:2,yg8q,,,0,What happened to Jesus’ appearance on the mountain?,"Jesus was transfigured so that his face shone like the sun, and his garments were as brilliant as the light."
+17:3,nitm,,,0,Who appeared and talked with Jesus?,Moses and Elijah appeared and talked with Jesus.
+17:4,v3qc,,,0,What did Peter offer to do?,Peter offered to make three tents for the three men.
+17:5,cehi,,,0,What did the voice out of the cloud say?,"The voice out of the cloud said, “This is my beloved Son, in whom I am well pleased; listen to him.”"
+17:9,ys0n,,,0,What did Jesus command the disciples as they were coming down the mountain?,Jesus commanded the disciples to report their vision to no one until the Son of Man had risen from the dead.
+17:11,hh3s,,,0,What did Jesus say about the teaching of the scribes that Elijah must come first?,Jesus said that Elijah will indeed come and restore all things.
+17:12-13,b201,,,0,"Who did Jesus say was the Elijah who had already come, and what had been done to him?","Jesus said John the Baptist was the Elijah who had already come, and they had done whatever they wanted to him."
+17:14-16,mwmx,,,0,What had the disciples been able to do for the epileptic boy?,The disciples had not been able to cure the epileptic boy.
+17:18,hwbh,,,0,What did Jesus do for the epileptic boy?,"Jesus rebuked the demon, and the boy was cured from that hour."
+17:20,rjef,,,0,Why were the disciples not able to cure the epileptic boy?,Jesus said that because of their small faith they could not cure the epileptic boy.
+17:22-23,nmem,,,0,What did Jesus tell his disciples that made them very sad?,"Jesus told his disciples that he would be delivered into the hands of people who would kill him, and that he would be raised up on the third day."
+17:27,ts45,,,0,How did Peter and Jesus pay the half-shekel tax?,"Jesus told Peter to go to the sea, throw in a hook, and draw in the fish that comes up first, which would have a shekel in its mouth for the tax."
+18:3,j2hf,,,0,What did Jesus say we must do to enter the kingdom of heaven?,Jesus said we must repent and become like little children to enter the kingdom of heaven.
+18:4,pbu6,,,0,Who did Jesus say is the greatest in the kingdom of heaven?,Jesus said that whoever humbles himself like a little child is greatest in the kingdom of heaven.
+18:6,dvkq,,,0,What happens to whoever causes a little one who believes in Jesus to sin?,Whoever causes a little one who believes in Jesus to sin would be better off if a millstone had been hung about his neck and he had been sunk into the sea.
+18:8,s62c,,,0,What did Jesus say we must do with anything that causes us to stumble?,Jesus said we must throw away anything that causes us to stumble.
+18:10,dwup,,,0,Why did Jesus say we must not despise the little ones?,"We must not despise the little ones, because their angels always look on the face of the Father."
+18:12-14,uws4,,,0,How is the person who seeks the one lost sheep like the Father in heaven?,It is also not the will of the Father that one of the little ones should perish.
+18:15,jkzm,,,0,"If your brother sins against you, what is the first thing you should do?","First, you should go and show him his fault between you and him alone."
+18:16,tg7u,,,0,"If your brother does not listen, what is the second thing you should do?","Second, you should take with you one or two more brothers as witnesses."
+18:17,d8l4,,,0,"If your brother still does not listen, what is the third thing you should do?","Third, you should tell the matter to the church."
+18:17,g0vs,,,0,"If your brother still will not listen, what should be done?","Finally, if he will not listen to the church, he should be treated as a Gentile and a tax collector."
+18:20,dpa4,,,0,What did Jesus promise where two or three are gathered in his name?,Jesus promised to be in the midst of two or three gathered in his name.
+18:21-22,lear,,,0,How many times did Jesus say we should forgive our brother?,Jesus said we should forgive our brother 70 times 7 times.
+18:24-25,y6zx,,,0,"What did the servant owe his master, and could he repay his master?","The servant owed his master 10,000 talents, which he could not repay."
+18:27,m810,,,0,Why did the master forgive the servant his debt?,The master was moved with compassion and forgave the servant his debt.
+18:30,wp50,,,0,What did the servant do with his fellow-servant who owed him one hundred denarii?,The servant refused to be patient and threw the fellow-servant into prison.
+18:33,y07y,,,0,What did the master tell the servant he should have done with the fellow-servant?,The master told the servant he should have had mercy on the fellow-servant.
+18:34,ev6y,,,0,What did the master then do to the servant?,The master handed the servant over to the torturers until he would pay all that was owed.
+18:35,epl6,,,0,What did Jesus say the Father will do if we do not forgive our brother from the heart?,Jesus said the Father will do to us like the master did to the servant if we do not forgive our brother from the heart.
+19:3,upfq,,,0,What question did the Pharisees ask Jesus to test him?,"The Pharisees asked Jesus, “Is it lawful for a man to divorce his wife for any cause?”"
+19:4,h71o,,,0,What did Jesus say had been true from the beginning of creation?,"Jesus said that from the beginning of creation, God had made them male and female."
+19:5,f48m,,,0,"Because of the way God had made them male and female, what did Jesus say a man should do?",Jesus said that a man should leave his father and mother and join to his wife.
+19:5-6,jim7,,,0,What did Jesus say happens when the husband joins to his wife?,"Jesus said that when a husband joins to his wife, the two become one flesh."
+19:6,pcrs,,,0,What did Jesus say man should not do with what God has joined together?,Jesus said that man should not tear apart what God has joined together.
+19:7-8,w0b2,,,0,Why did Jesus say Moses had commanded certificates of divorce?,Jesus said that Moses had commanded certificates of divorce because of the hardness of the Jews’ hearts.
+19:9,gln0,,,0,Who did Jesus say commits adultery?,"Jesus said that whoever divorces his wife, except for fornication, and marries another commits adultery, and that a man who marries a divorced woman commits adultery."
+19:13,cmel,,,0,What did the disciples do when some little children were brought to Jesus?,"When some little children were brought to Jesus, the disciples rebuked them."
+19:14,sme3,,,0,What did Jesus say when he saw the little children?,"Jesus said to permit the little children to come, for to such ones belongs the kingdom of heaven."
+19:16-17,i057,,,0,What did Jesus tell the young man he must do to enter into eternal life?,Jesus told the man to keep the commandments to enter into eternal life.
+19:20-21,lrcn,,,0,"When the young man said he had kept the commandments, what did Jesus tell him to do?","When the young man said he had kept the commandments, Jesus told him to sell what he had and give it to the poor."
+19:22,xq1c,,,0,How did the young man respond to Jesus’ command to sell what he had?,The young man went away sorrowful because he had great possessions.
+19:26,d7c1,,,0,What did Jesus say about the possibility of a rich man entering the kingdom of heaven?,"Jesus said that with people it is impossible, but that with God all things are possible."
+19:28,cw1n,,,0,What reward did Jesus promise his disciples who had followed him?,"Jesus promised his disciples that in the new birth, they would sit upon 12 thrones, judging the 12 tribes of Israel."
+19:30,rna9,,,0,What did Jesus say about those who are first now and those who are last now?,"Jesus said that those who are first now will be last, and that those who are last now will be first."
+20:1-2,wh43,,,0,How much did the landowner agree to pay the workers whom he hired early in the morning?,The landowner agreed to pay the workers hired early in the morning one denarius a day.
+20:4,qu3w,,,0,How much did the landowner say he would pay the workers whom he hired the third hour?,The landowner said he would pay them whatever is right.
+20:9,q74p,,,0,How much did the workers receive who were hired the eleventh hour?,The workers hired the eleventh hour received one denarius.
+20:11-12,ay0a,,,0,What complaint did the workers have who were hired early in the morning?,"They complained that they had worked the whole day, but had received the same pay as those who worked one hour."
+20:13-14,u4vf,,,0,How did the landowner respond to the workers’ complaint?,The landowner said he had done the workers no wrong and had paid them what belonged to them.
+20:17-19,ley8,,,0,What events did Jesus tell his disciples about in advance as they were going up to Jerusalem?,"Jesus told his disciples that he would be delivered to the chief priests and scribes, condemned to death, crucified, and on the third day raised up."
+20:20-21,ce1w,,,0,What request did the mother of the sons of Zebedee have for Jesus?,She wanted Jesus to command that her two sons sit at his right and left hand in his kingdom.
+20:23,xm2k,,,0,Who did Jesus say determined who it was who would sit at his right and left hand in his kingdom?,Jesus said that the Father prepared those places for whom he chose.
+20:26,uvlv,,,0,How did Jesus say that one could be great among his disciples?,Jesus said that whoever wishes to become great must be a servant.
+20:28,i680,,,0,Why did Jesus say that he came?,Jesus said that he came to serve and to give his life as a ransom for many.
+20:30,p39w,,,0,What did the two blind men do who were sitting by the road when Jesus passed by?,"The two blind men shouted out, “Lord, Son of David, have mercy on us.”"
+20:34,mxpe,,,0,Why did Jesus heal the two blind men?,Jesus healed the two blind men because he was moved with compassion.
+21:2,bydy,,,0,What did Jesus say his two disciples would find in the village opposite them?,"Jesus said they would find a donkey tied up, and a colt with her."
+21:4-5,hb5j,,,0,What had a prophet predicted about this event?,"A prophet predicted that the King would come on a donkey, and on a colt."
+21:8,a9sc,,,0,What did the crowd do to the road into Jerusalem that Jesus traveled?,"The most of the crowd spread their outer garments onto the road, and others spread tree branches onto the road."
+21:9,jb0b,,,0,What did the crowd shout as Jesus went?,"The crowd shouted, “Hosanna to the son of David, blessed is he who comes in the name of the Lord, hosanna in the highest.”"
+21:12,g1ap,,,0,What did Jesus do when he entered the temple of God in Jerusalem?,"Jesus cast out all who bought and sold in the temple, and turned over the tables of the money-changers and seats of those who sold pigeons."
+21:13,j9me,,,0,What did Jesus say the merchants had made the temple of God?,Jesus said that the merchants had made the temple of God a den of robbers.
+21:15-16,ekwk,,,0,"When the chief priests and scribes objected to what the children were shouting about Jesus, what did Jesus say to them?",Jesus quoted the prophet who said that out of the mouths of babes and nursing infants God had perfected praise.
+21:18-19,vx5n,,,0,"What did Jesus do to the fig tree, and why?",Jesus caused the fig tree to dry up because it had no fruit on it.
+21:20-22,occs,,,0,What did Jesus teach his disciples about prayer from the drying up of the fig tree?,"Jesus taught his disciples that if they asked in prayer while believing, they would receive."
+21:23,a13v,,,0,"While Jesus was teaching, about what did the chief priests and elders question him?",The chief priests and elders wanted to know by what authority Jesus did these things.
+21:25,u65g,,,0,What question did Jesus ask the chief priests and elders in return?,Jesus asked them if they thought John the Baptist’s baptism was from heaven or from men.
+21:25,efdz,,,0,Why did the chief priests and scribes not want to answer that John’s baptism was from heaven?,They knew that Jesus would then ask them why they did not believe John.
+21:26,z8vl,,,0,Why did the chief priests and scribes not want to answer that John’s baptism was from men?,"They feared the crowd, who held John to be a prophet."
+21:28-29,hzq0,,,0,"In Jesus’ story of the two sons, what did the first son do when told to work in the vineyard?","The first son said he would not go, but changed his mind and went."
+21:30,a2p2,,,0,What did the second son do when told to work in the vineyard?,"The second son said he would go, but then did not go."
+21:31,cp5g,,,0,Which of the two sons did the father’s will?,The first son.
+21:31-32,o00x,,,0,Why did Jesus say that tax collectors and prostitutes were entering the kingdom of God before the chief priests and scribes?,"Jesus said they were entering the kingdom because they believed John, but the chief priests and scribes did not believe John."
+21:35-36,bdwj,,,0,What did the vine growers do to the servants that the owner sent to get his grapes?,"The vine growers beat, killed, and stoned the servants."
+21:37,p7ww,,,0,Who did the owner finally send to the vine growers?,The owner finally sent his own son.
+21:38-39,uvk8,,,0,What did the vine growers do to the person that the owner sent last?,The vine growers killed the owner’s son.
+21:40-41,sgs8,,,0,What did the people say the owner should then do?,The people said that the owner should destroy the first vine growers and then rent to other vine growers who would pay.
+21:42,o8w1,,,0,"In the scriptures that Jesus then quoted, what happens to the stone which the builders reject?",The stone which the builders reject is made the cornerstone.
+21:43,j3da,,,0,"Based on the scripture Jesus quoted, what did he say would happen?","Jesus said that the kingdom of God would be taken away from the chief priests and Pharisees, and would be given to a nation that brings forth its fruits."
+21:46,hwd4,,,0,Why did the chief priests and Pharisees not immediately lay hands on Jesus?,"They were afraid of the crowd, because the people regarded Jesus as a prophet."
+22:5-6,mrha,,,0,What did those invited to the marriage feast of the king’s son do when the king’s servants brought the invitation?,"Some did not take the invitation seriously and went about their own business, and others laid hands on the king’s servants and killed them."
+22:7,vjyo,,,0,What did the king do to those first invited to the marriage feast?,"The king sent his armies, killed those murderers, and burned their city."
+22:9-10,pfst,,,0,Who did the king then invite to the marriage feast?,"The king then invited as many people as his servants could find, both bad and good."
+22:13,zdgl,,,0,What did the king do to the man who came to the feast without a wedding garment?,The king had him bound and thrown into the outer darkness.
+22:15,a2xx,,,0,What were the Pharisees trying to do to Jesus?,The Pharisees were trying to entrap Jesus in his own talk.
+22:17,tavb,,,0,What question did the Pharisees’ disciples ask Jesus?,They asked Jesus if it was lawful to pay taxes to Caesar or not.
+22:21,o4ol,,,0,How did Jesus answer the question from the Pharisees’ disciples?,"Jesus said to give to Caesar the things that are Caesar’s, and to God the things that are God’s."
+22:23,f1ch,,,0,What belief did the Sadducees have about the resurrection?,The Sadducees believed that there was no resurrection.
+22:26-27,hb95,,,0,"In the Sadducees’ story, how many husbands did the wife have?",The woman had seven husbands.
+22:29,kay8,,,0,What two things did Jesus say the Sadducees did not know?,Jesus said the Sadducees did not know the scriptures nor the power of God.
+22:30,bwx9,,,0,What did Jesus say about marriage in the resurrection?,"Jesus said that in the resurrection, there is no marriage."
+22:32,sbnq,,,0,How did Jesus show from the scriptures that there is a resurrection?,"Jesus quoted the scriptures where God says that he is the God of Abraham, Isaac, and Jacob—the God of the living."
+22:36,v6nm,,,0,What question did the Pharisee lawyer ask Jesus?,The lawyer asked Jesus which is the greatest commandment in the law.
+22:37-38,mmi8,,,0,What did Jesus say was the great and first commandment?,"Jesus said that to love the Lord your God with all your heart, soul, and mind was the great and first commandment."
+22:39,hd9d,,,0,What did Jesus say was the second commandment?,Jesus said that to love your neighbor as yourself was the second commandment.
+22:42,hps5,,,0,What question did Jesus ask the Pharisees?,Jesus asked them whose son is the Christ.
+22:42,hsuj,,,0,What answer did the Pharisees give Jesus?,The Pharisees said that the Christ was the son of David.
+22:45,rsdv,,,0,What second question did Jesus then ask the Pharisees?,"Jesus then asked them how David could call his son, the Christ, Lord."
+22:46,n9o9,,,0,What answer did the Pharisees give Jesus?,The Pharisees were not able to answer Jesus a word.
+23:2-3,cak5,,,0,"Since the scribes and Pharisees sat in Moses’ seat, what did Jesus tell the people to do with their teaching?",Jesus told the people to do and observe the things the scribes and Pharisees taught from Moses’ seat.
+23:3,zftb,,,0,Why did Jesus say the people should not imitate the scribes and Pharisees’ deeds?,Jesus said they should not imitate their deeds because they say things but then do not do them.
+23:5,byyu,,,0,For what purpose did the scribes and Pharisees do all their deeds?,The scribes and Pharisees did all their deeds to be seen by people.
+23:8-10,gnun,,,0,"Who did Jesus say is our one Father, and our one teacher?","Jesus said that our one Father is him who is in heaven, and our one teacher is the Christ."
+23:12,j3tg,,,0,"What will God do to the one who exalts himself, and to the one who humbles himself?","God will humble the one who exalts himself, and will exalt the one who humbles himself."
+23:13-15,jrqj,,,0,What name did Jesus repeatedly call the scribes and Pharisees which described their behavior?,Jesus repeatedly called the scribes and Pharisees hypocrites.
+23:15,iwrs,,,0,"When the scribes and Pharisees made a new convert, whose son was he?","When the scribes and Pharisees made a new convert, he was twice a son of hell as they were."
+23:16-17,yilh,,,0,"Regarding being bound by oaths, what did Jesus say about the teachings of the scribes and Pharisees?",Jesus said that the scribes and Pharisees were blind guides and blind fools.
+23:23,ep2a,,,0,"Even though they had tithed their mint, dill, and cumin, what had the scribes and Pharisees failed to do?","The scribes and Pharisees had failed to do the weightier matters of the law: justice, mercy, and faith."
+23:25-26,atfn,,,0,What had the scribes and Pharisees failed to clean?,"The scribes and Pharisees had failed to clean the inside of their cup, so the outside could be clean also."
+23:28,di7v,,,0,Of what were the scribes and Pharisees full on the inside?,The scribes and Pharisees were full of hypocrisy and lawlessness.
+23:29-31,max5,,,0,What had the fathers of the scribes and Pharisees done to God’s prophets?,The fathers of the scribes and Pharisees had killed God’s prophets.
+23:33,aird,,,0,What judgment were the scribes and Pharisees going to face?,The scribes and Pharisees were going to face the judgment of hell.
+23:34,ltnn,,,0,"What did Jesus say the scribes and Pharisees would do to the prophets, wise men, and scribes he would send them?","Jesus said they would kill and crucify some, whip some, and chase some from city to city."
+23:35,zix0,,,0,"As a result of their behavior, what guilt would come upon the scribes and Pharisees?",The guilt of all the righteous blood shed on the earth would come upon the scribes and Pharisees.
+23:36,dwou,,,0,To which generation did Jesus say all these things would happen?,Jesus said that to this generation all these things would happen.
+23:37,zvar,,,0,"What desire did Jesus have for the children of Jerusalem, and why was it not fulfilled?","Jesus desired to gather the children of Jerusalem together, but they would not agree."
+23:38,qe8d,,,0,How would Jerusalem’s house now be left?,Jerusalem’s house would now be left abandoned.
+24:2,rqog,,,0,What did Jesus prophesy concerning the temple in Jerusalem?,Jesus prophesied that not one stone of the temple would be left on another which would not be torn down.
+24:3,pn60,,,0,"After hearing the prophesy about the temple, what did the disciples ask Jesus?","The disciples asked Jesus when these things would happen, and what would be the sign of his coming and the end of the world."
+24:5,gjxz,,,0,What action of people did Jesus say would lead many astray?,"Jesus said many would come saying they are the Christ, leading many astray."
+24:6-8,v9o3,,,0,What events did Jesus say would be the beginning of birth pains?,"Jesus said that wars, famines, and earthquakes would be the beginning of birth pains."
+24:9-10,i5dp,,,0,What did Jesus say would happen among the believers at this time?,Jesus said that the believers would suffer tribulation and be hated by the nations for the sake of his name.
+24:13,fsav,,,0,Who did Jesus say would be saved?,Jesus said that the one who endures to the end will be saved.
+24:14,d78h,,,0,What will happen with the gospel before the end comes?,The gospel of the kingdom will be preached in the whole world before the end comes.
+24:15-16,bam0,,,0,What did Jesus say the believers should do when they see the abomination of desolation standing in the holy place?,Jesus said the believers should flee to the mountains.
+24:21,ok6i,,,0,How great will the tribulation be in those days?,"In those days, the tribulation will be great, greater than any from the beginning of the world."
+24:24,iosc,,,0,How will the false Christs and false prophets lead many astray?,The false Christs and false prophets will show great signs and wonders to lead many astray.
+24:27,oylw,,,0,What will the coming of the Son of Man look like?,The coming of the Son of Man will look like lightning shining from east to west.
+24:29,eqyv,,,0,"What will happen to the sun, moon, and stars after the tribulation of those days?","The sun and moon will be darkened, and the stars will fall from the sky."
+24:30,kqot,,,0,What will the tribes of the earth do when they see the Son of Man coming in power and great glory?,The tribes of the earth will mourn.
+24:31,y4r6,,,0,What sound will be heard as the Son of Man sends his angels to gather the elect?,The great sound of a trumpet will be heard when the angels gather the elect.
+24:34,vz5z,,,0,What did Jesus say would not pass away until all these things have occurred?,Jesus said that this generation will not pass away until all these things have occurred.
+24:35,f996,,,0,"What did Jesus say would pass away, and what would never pass away?","Jesus said that heaven and earth will pass away, but that his words will never pass away."
+24:36,qpf2,,,0,Who knows when these events will occur?,Only the Father knows when these events will occur.
+24:37-39,mys9,,,0,How will the coming of the Son of Man be like the days of Noah before the Flood?,"The people will be eating and drinking, marrying and giving in marriage, knowing nothing of the coming judgment that will take them away."
+24:42,mer1,,,0,"What attitude did Jesus say his believers must maintain regarding his coming, and why?","Jesus said that his believers must always be ready, because they do not know what day the Lord will come."
+24:45-46,ien5,,,0,What does a faithful and wise servant do while the master is away?,A faithful and wise servant takes care of the master’s household while the master is away.
+24:47,l3jp,,,0,What does the master do for the faithful and wise servant when he returns?,"When he returns, the master sets the faithful and wise servant over everything that he owns."
+24:48-49,zsw7,,,0,What does an evil servant do while the master is away?,An evil servant beats his fellow servants and eats and drinks with drunkards while the master is away.
+24:51,oi2q,,,0,What does the master do with the evil servant when he returns?,"When he returns, the master cuts the evil servant in pieces and sends him to where there is weeping and grinding of teeth."
+25:3,qwia,,,0,What did the foolish virgins not do when they went to meet the bridegroom?,The foolish virgins did not take any oil with them along with their lamps.
+25:4,d1tc,,,0,What did the wise virgins do when they went to meet the bridegroom?,The wise virgins took containers of oil along with their lamps.
+25:5-6,a6xq,,,0,"When did the bridegroom come, and was this the expected time?","The bridegroom came at midnight, which was later than the expected time."
+25:10,zyqf,,,0,What happened to the wise virgins when the bridegroom came?,The wise virgins went with the bridegroom to the marriage feast.
+25:10-12,bol5,,,0,What happened to the foolish virgins when the bridegroom came?,"The foolish virgins had to go buy oil, and when they returned the door to the feast was shut for them."
+25:13,q8i0,,,0,What did Jesus say he wanted the believers to learn from the parable of the virgins?,"Jesus said that the believers should watch, for they do not know the day or the hour."
+25:16-17,z8rc,,,0,What did the servants with five and two talents do with their talents when their master went on his journey?,"The servant with five talents made another five talents, and the one with two talents made another two."
+25:18,m2j8,,,0,What did the servant with one talent do with the talent when his master went on his journey?,The servant with one talent dug a hole in the ground and hid his master’s money.
+25:19,hfww,,,0,How long was the master away on his journey?,The master was away for a long time.
+25:20-21,ikbp,,,0,"When he returned, what did the master do for the servants who had been given five and two talents?","The master said, “Well done, good and faithful servant!” and put them in charge of many things."
+25:26-30,o2vg,,,0,"When he returned, what did the master do to the servant who had been given one talent?","The master said, “You wicked and lazy servant,” took the one talent away from him, and threw him into the outer darkness."
+25:31-32,sd2y,,,0,What will the Son of Man do when he comes and sits on his glorious throne?,The Son of Man will gather all the nations and separate the people one from another.
+25:34,wqx8,,,0,What will those on the King’s right hand receive?,Those on the King’s right hand receive the kingdom prepared for them from the foundation of the world.
+25:35-36,k3gd,,,0,What did those on the King’s right hand do in their lives?,"Those on the King’s right hand gave food to the hungry, drink to the thirsty, took in strangers, clothed the naked, cared for the sick, and visited the prisoners."
+25:41,e7j3,,,0,What will those on the King’s left hand receive?,Those on the King’s left hand receive the eternal fire prepared for the devil and his angels.
+25:42-43,igr1,,,0,What did those on the King’s left hand not do in their lives?,"Those on the King’s left hand did not give food to the hungry, drink to the thirsty, take in strangers, clothe the naked, care for the sick, or visit the prisoners."
+26:2,rcj7,,,0,What Jewish feast did Jesus say was coming in two days?,Jesus said that the Passover was coming in two days.
+26:4,bs56,,,0,What were the chief priests and elders plotting at the palace of the chief priest?,They were plotting to arrest Jesus stealthily and to kill him.
+26:5,ndn4,,,0,Of what were the chief priests and elders afraid?,"They were afraid that if they killed Jesus during the feast, the people might riot."
+26:6-9,qqpo,,,0,What was the disciples’ reaction when the woman poured the expensive ointment on Jesus’ head?,The disciples were angry and wanted to know why the ointment was not sold and the money given to the poor.
+26:12,wx7n,,,0,Why did Jesus say the woman had poured the ointment on him?,Jesus said the woman had poured the ointment on him for his burial.
+26:14-15,ociq,,,0,What was Judas Iscariot paid to deliver Jesus into the hands of the chief priests?,Judas was paid 30 pieces of silver to deliver Jesus into the hands of the chief priests.
+26:21,iqeb,,,0,What did Jesus say at the evening meal about one of his disciples?,Jesus said that one of his disciples would betray him.
+26:24,v2v0,,,0,What did Jesus say about the future of the one who would betray him?,Jesus said that it would be better for the man who betrays him if he had never been born.
+26:25,mnj8,,,0,How did Jesus answer when Judas asked if he was the one who would betray Jesus?,"Jesus answered, “You have said it yourself.”"
+26:26,fiwp,,,0,"What did Jesus say when he took the bread, blessed it, broke it, and gave it to the disciples?","Jesus said, “Take, eat. This is my body.”"
+26:28,scws,,,0,What did Jesus say about the cup he then gave to the disciples?,Jesus said that the cup was his blood of the covenant that is poured out for many for the forgiveness of sins.
+26:30-31,io6g,,,0,"At the Mount of Olives, what did Jesus tell his disciples they would all do that night?",Jesus told his disciples that they would all stumble that night because of him.
+26:33-34,zbyx,,,0,"When Peter said he would never stumble, what did Jesus tell him he would do that night?",Jesus said that Peter would deny Jesus three times that night before the rooster crows.
+26:37-38,fnyq,,,0,What did Jesus ask Peter and the two sons of Zebedee to do while he prayed?,Jesus asked them to remain there and watch with him.
+26:39,p5zy,,,0,What request did Jesus make to the Father in his prayer?,"Jesus requested that if it were possible, to let this cup pass from him."
+26:40,ezku,,,0,What were the disciples doing when Jesus returned from praying?,The disciples were sleeping when Jesus returned from praying.
+26:42,cr3a,,,0,"What did Jesus pray be done, no matter Jesus’ own will?","Jesus prayed that the Father’s will be done, no matter Jesus’ own will."
+26:42-44,mygy,,,0,How many times did Jesus leave the disciples to go and pray?,Jesus left the disciples three times to go and pray.
+26:47-48,nb6b,,,0,What sign did Judas give the crowd to identify Jesus as the one to seize?,Judas kissed Jesus as the sign to the crowd that Jesus was the one to seize.
+26:51,temo,,,0,What did one of Jesus’ disciples do when Jesus was seized?,One of Jesus’ disciples drew his sword and cut off the ear of the servant of the high priest.
+26:53,u0ox,,,0,What did Jesus say he could do if he wished to defend himself?,"Jesus said that he could call upon the Father, who would send 12 legions of angels."
+26:54,wzyi,,,0,What did Jesus say was being fulfilled by these events?,Jesus said that the Scriptures were being fulfilled by these events.
+26:56,vdj0,,,0,What did all the disciples then do?,All the disciples then left him and fled.
+26:59,y7s8,,,0,For what were the chief priests and the whole Council looking in order to put Jesus to death?,They were looking for false testimony against Jesus in order to put Jesus to death.
+26:63,trpl,,,0,What command did the high priest give Jesus by the living God?,"The high priest commanded Jesus tell them whether or not he was the Christ, the Son of God."
+26:64,c97z,,,0,What was Jesus’ response to the high priest’s command?,"Jesus said, “You have said it yourself.”"
+26:64,nzm0,,,0,What did Jesus say the high priest would see?,"Jesus said the high priest would see the Son of Man sitting at the right hand of Power, and coming on the clouds of heaven."
+26:65,x6hi,,,0,What accusation did the high priest then make against Jesus?,The high priest accused Jesus of blasphemy.
+26:67,qv9z,,,0,What did they do to Jesus after they accused him?,"They spat in Jesus’ face, beat him, and struck him with the palms of their hands."
+26:73-75,kbyv,,,0,What did Peter answer the three times that someone asked him if he was with Jesus?,Peter answered that he did not know Jesus.
+26:74,vrpx,,,0,What happened as soon as Peter answered the third time?,"As soon as Peter answered the third time, a rooster crowed."
+26:75,meef,,,0,What did Peter remember after his third answer?,"Peter remembered that Jesus had said that before the rooster crows, he would deny Jesus three times."
+27:2,rr77,,,0,"In the morning, where did the chief priests and elders take Jesus?","In the morning, they took him to Pilate the governor."
+27:3-5,hgx8,,,0,What did Judas Iscariot do when he saw that Jesus was condemned?,"Judas repented of betraying innocent blood, returned the silver, went out, and hanged himself."
+27:6-7,yffx,,,0,What did the chief priests do with the 30 pieces of silver?,"They bought the Potter’s Field, in which to bury strangers."
+27:9-10,ugxj,,,0,Whose prophecy did these events fulfill?,These events fulfilled the prophecy of Jeremiah.
+27:11,uasg,,,0,"What question did Pilate ask Jesus, and what was Jesus’ answer?","Pilate asked Jesus if he was the King of the Jews, and Jesus answered, “You say so.”"
+27:12-14,a2bg,,,0,What did Jesus answer to all the accusations of the chief priests and elders?,Jesus did not answer even one word.
+27:15-16,azps,,,0,"What did Pilate wish to do for Jesus, following the custom of the feast of Passover?","Pilate wished to have Jesus released, following the custom of the feast."
+27:19,l0vn,,,0,What message did Pilate’s wife send to him as he was sitting on the judgment-seat?,She told Pilate to have nothing to do with that innocent man.
+27:20,zoxh,,,0,"Why was Barabbas, and not Jesus, released according to the custom of the feast?",The chief priests and elders persuaded the crowd to ask for Barabbas to be released instead of Jesus.
+27:22,obno,,,0,What did the crowd cry out that they wanted done with Jesus?,The crowd cried out that they wanted Jesus to be crucified.
+27:24,obt8,,,0,"When Pilate saw a riot was starting, what did he do?","Pilate washed his hands, said he was innocent of this innocent man’s blood, and gave Jesus over to the crowd."
+27:25,ozx5,,,0,What did the people say when Pilate handed Jesus to them?,"The people said, “May his blood be on us and our children.”"
+27:27-29,dimj,,,0,What did the soldiers of the governor put on Jesus?,The soldiers put a scarlet robe on him and a crown of thorns on his head.
+27:32,mrhn,,,0,What was Simon of Cyrene forced to do?,Simon was forced to carry Jesus’ cross.
+27:33,adh8,,,0,Where did they go to crucify Jesus?,"They went to Golgotha, which means “The Place of a Skull.”"
+27:35-36,cxpy,,,0,What did the soldiers do after they crucified Jesus?,The soldiers cast lots to divide up Jesus’ garments and then sat and watched him.
+27:37,sel1,,,0,What writing did they put above Jesus’ head?,"They wrote, “THIS IS JESUS, THE KING OF THE JEWS.”"
+27:38,b5v0,,,0,Who was crucified with Jesus?,"Two robbers were crucified with Jesus, one on his right and one on his left."
+27:42,e4q8,,,0,"What did the people, the chief priests, the scribes, and the elders challenge Jesus to do?",They all challenged Jesus to save himself and come down from the cross.
+27:45,rf30,,,0,What happened from the sixth to the ninth hour?,Darkness came over the whole land from the sixth to the ninth hour.
+27:46,oka9,,,0,What did Jesus cry out at the ninth hour?,"Jesus cried out, “My God, my God, why have you forsaken me?”"
+27:50,atpk,,,0,What happened after Jesus cried out again with a loud voice?,Jesus gave up his spirit.
+27:51,gmdd,,,0,What happened in the temple after Jesus died?,The curtain of the temple was split in two from the top to the bottom after Jesus died.
+27:52-53,jhj3,,,0,What happened at the tombs after Jesus died?,Many saints that had fallen asleep were raised and appeared to many after Jesus died.
+27:54,z0f7,,,0,"Seeing all these events, what was the testimony of the centurion?","The centurion testified, “Truly this was the Son of God.”"
+27:57-58,zq32,,,0,"After he was crucified, what happened to the body of Jesus?","A rich disciple of Jesus, Joseph, asked Pilate for the body, wrapped it in linen, and laid it in his own new tomb."
+27:60,of4g,,,0,What was placed across the door of the tomb where Jesus’ body was laid?,A large stone was placed across the door of the tomb where Jesus’ body was laid.
+27:62-64,t30z,,,0,Why did the chief priests and the Pharisees gather with Pilate the next day?,The chief priests and the Pharisees wanted to make sure that Jesus’ tomb was secure so that no one could steal the body.
+27:65-66,xgja,,,0,What did Pilate permit them to do at the tomb?,Pilate permitted them to seal the stone and place a guard at the tomb.
+28:1,wirt,,,0,What day and time did Mary Magdalene and the other Mary go to Jesus’ tomb?,"As it began to dawn toward the first day of the week, they went to Jesus’ tomb."
+28:2,c0pn,,,0,How was the stone rolled away from Jesus’ tomb?,An angel of the Lord descended and rolled away the stone.
+28:4,rhvi,,,0,What did the guards do when they saw the angel?,The guards shook with fear and became like dead men when they saw the angel.
+28:5-7,lbcd,,,0,What did the angel say to the two women about Jesus?,The angel said that Jesus had risen and was going ahead of them to Galilee.
+28:8-9,f58g,,,0,What happened to the two women on their way to tell the disciples?,"The women met Jesus, and they took hold of his feet and worshiped him."
+28:11-13,p7ks,,,0,"When the guards told the chief priests what had happened at the tomb, what did the chief priests do?",The chief priests paid the soldiers a large amount of money and told them to say that Jesus’ disciples had stolen the body.
+28:17,eo11,,,0,What did the disciples do when they saw Jesus in Galilee?,"The disciples worshiped Jesus, but some doubted."
+28:18,sokd,,,0,What authority did Jesus say had been given to him?,Jesus said that all authority in heaven and on earth had been given to him.
+28:19,lf4q,,,0,What did Jesus command his disciples to do?,"Jesus commanded his disciples to go and make disciples, and to baptize them."
+28:19,mgj3,,,0,Into what name did Jesus tell his disciples to baptize?,"Jesus told his disciples to baptize in the name of the Father, of the Son, and of the Holy Spirit."
+28:20,yqc0,,,0,What did Jesus command his disciples to teach?,Jesus commanded his disciples to teach the nations to obey all the things he had commanded.
+28:20,eson,,,0,What final promise did Jesus give his disciples?,"Jesus promised to be with them, even to the end of the age."

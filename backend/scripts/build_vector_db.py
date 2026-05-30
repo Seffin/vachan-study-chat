@@ -312,6 +312,11 @@ def prebuild_vector_db():
                 df['Question'] = df['Question'].fillna('').astype(str)
                 df['Response'] = df['Response'].fillna('').astype(str)
 
+                # Save cleaned CSV file in static_data for offline serverless fallback on Vercel
+                clean_csv_filename = f"tq_{book_code}.csv"
+                clean_csv_path = os.path.join(STATIC_DATA_DIR, clean_csv_filename)
+                df.to_csv(clean_csv_path, index=False)
+
                 # Skip empty datasets
                 if df.empty or len(df.dropna(subset=['Question', 'Response'])) == 0:
                     print(f"[WARNING] Skipping '{book_code}': Dataset has no valid Q&A rows.")
