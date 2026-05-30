@@ -59,7 +59,8 @@ BIBLE_API_KEY = os.environ.get("BIBLE_API_KEY")
 BIBLE_API_URL = os.environ.get("BIBLE_API_URL", "https://rest.api.bible").rstrip('/')
 BIBLE_ID = os.environ.get("BIBLE_ID", "de4e12af7af57f50-02")
 
-DISCLAIMER = "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*"
+DISCLAIMER_UNFOLDING = "🤖 *This response based on the unfoldingWord dataset.*"
+DISCLAIMER_AI = "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*"
 
 # =====================================================================
 # 🧠 OFFLINE SEMANTIC OVERLAP & RETRIEVER INFRASTRUCTURE
@@ -117,8 +118,7 @@ Context:
 
 Question: {question}
 
-Answer naturally, and ALWAYS append this exact disclaimer at the very end on a new line:
-"🤖 *This is an AI-generated response based on the unfoldingWord dataset.*"
+Answer naturally.
 """
 )
 
@@ -271,9 +271,16 @@ async def chat_endpoint(request: ChatRequest):
             llm_result = llm.invoke(formatted_prompt)
             answer = llm_result.content.strip()
             
-            # Failsafe disclaimer check
-            if DISCLAIMER not in answer:
-                answer = f"{answer}\n\n{DISCLAIMER}"
+            # Clean any pre-existing disclaimers to prevent duplicates
+            for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
+                if d in answer:
+                    answer = answer.replace(d, "").strip()
+            
+            # Append correct disclaimer depending on whether fallback was triggered
+            if "general knowledge" in answer.lower():
+                answer = f"{answer}\n\n{DISCLAIMER_AI}"
+            else:
+                answer = f"{answer}\n\n{DISCLAIMER_UNFOLDING}"
                 
             top_ref = docs[0].metadata.get("reference", "1:1")
             
@@ -333,9 +340,16 @@ async def chat_endpoint(request: ChatRequest):
             llm_result = llm.invoke(formatted_prompt)
             answer = llm_result.content.strip()
             
-            # Failsafe disclaimer check
-            if DISCLAIMER not in answer:
-                answer = f"{answer}\n\n{DISCLAIMER}"
+            # Clean any pre-existing disclaimers to prevent duplicates
+            for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
+                if d in answer:
+                    answer = answer.replace(d, "").strip()
+            
+            # Append correct disclaimer depending on whether fallback was triggered
+            if "general knowledge" in answer.lower():
+                answer = f"{answer}\n\n{DISCLAIMER_AI}"
+            else:
+                answer = f"{answer}\n\n{DISCLAIMER_UNFOLDING}"
                 
             top_ref = docs[0].metadata.get("reference", "1:1")
             
@@ -385,8 +399,8 @@ async def chat_endpoint(request: ChatRequest):
     top_doc = docs[0]
     answer = top_doc.metadata["response"]
     
-    if DISCLAIMER not in answer:
-        answer = f"{answer}\n\n{DISCLAIMER}"
+    # Mode 3 is purely retrieved directly from the offline unfoldingWord CSV database
+    answer = f"{answer}\n\n{DISCLAIMER_UNFOLDING}"
         
     top_ref = top_doc.metadata["reference"]
     

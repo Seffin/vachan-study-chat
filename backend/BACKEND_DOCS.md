@@ -136,14 +136,14 @@ Context:
 
 Question: {question}
 
-Answer naturally, and ALWAYS append this exact disclaimer at the very end on a new line:
-"🤖 *This is an AI-generated response based on the unfoldingWord dataset.*"
+Answer naturally.
 """
 )
 ```
 
-- **Disclaimer**: The server automatically appends the exact italicized disclaimer at the very end of every RAG response:
-  `"🤖 This is an AI-generated response based on the unfoldingWord dataset."`
+- **Dynamic Disclaimer**: The backend dynamically appends a tailored disclaimer at the very end of every chat response to prevent duplicates and provide accurate attribution:
+  * **If answered from context:** `🤖 *This response based on the unfoldingWord dataset.*`
+  * **If fell back to general knowledge:** `🤖 *This is an AI-generated response based on the unfoldingWord dataset.*`
 
 ---
 
