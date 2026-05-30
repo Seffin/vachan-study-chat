@@ -431,7 +431,7 @@ export default function Workspace({ selectedBook, setSelectedBook, onBackToLandi
             className="w-full py-2.5 px-4 rounded-lg bg-black text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-black dark:hover:bg-zinc-200 font-semibold text-sm flex items-center justify-center gap-2 shadow-sm custom-transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>+ New Chat</span>
+            <span>New Chat</span>
           </button>
         </div>
 
@@ -512,7 +512,7 @@ export default function Workspace({ selectedBook, setSelectedBook, onBackToLandi
                   className="w-full py-2.5 rounded-xl bg-amber-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>+ New Chat</span>
+                  <span>New Chat</span>
                 </button>
               </div>
 
