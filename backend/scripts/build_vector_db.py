@@ -213,6 +213,11 @@ def prebuild_vector_db():
         if arg != "ALL":
             target_book = arg
 
+    # Check if a specific provider argument was provided (e.g. 'gemini' or 'openai')
+    target_provider = None
+    if len(sys.argv) > 2:
+        target_provider = sys.argv[2].lower().strip()
+
     # Find all Translation Questions TSV files
     tsv_files = [f for f in os.listdir(TQ_DIR) if f.startswith("tq_") and f.endswith(".tsv")]
     if not tsv_files:
@@ -244,7 +249,7 @@ def prebuild_vector_db():
     # Build active environments list
     jobs = []
     
-    if GEMINI_KEY:
+    if GEMINI_KEY and (not target_provider or target_provider == "gemini"):
         try:
             # Try GoogleGenerativeAIEmbeddings first (standard in langchain_google_genai)
             try:
@@ -261,7 +266,7 @@ def prebuild_vector_db():
         except Exception as e:
             print(f"[WARNING] Failed to load Gemini embeddings ({e})")
 
-    if OPENAI_KEY:
+    if OPENAI_KEY and (not target_provider or target_provider == "openai"):
         try:
             from langchain_openai import OpenAIEmbeddings
             jobs.append({
@@ -378,8 +383,9 @@ def prebuild_vector_db():
                             break  # Success, move to next batch!
                         except Exception as embed_err:
                             err_msg = str(embed_err)
-                            is_rate_limit = any(term in embed_err_msg.lower() for embed_err_msg in [err_msg] for term in ["429", "quota", "exhausted", "rate", "limit"])
-                            if is_rate_limit and attempt < max_retries:
+                            is_rate_limit = any(term in err_msg.lower() for term in ["429", "quota", "exhausted", "rate", "limit"])
+                            is_permanent_quota = any(term in err_msg.lower() for term in ["insufficient_quota", "insufficient_funds", "billing", "check your plan and billing details"])
+                            if is_rate_limit and not is_permanent_quota and attempt < max_retries:
                                 sleep_dur = base_delay * attempt
                                 print(f"   [RATE LIMIT] Hit limit on batch {batch_num} (attempt {attempt}/{max_retries}). Sleeping for {sleep_dur}s...")
                                 time.sleep(sleep_dur)
