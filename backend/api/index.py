@@ -244,6 +244,7 @@ class ChatResponse(BaseModel):
     answer: str
     reference: str
     suggested_questions: List[str]
+    is_general_knowledge: bool = False
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
@@ -271,16 +272,13 @@ async def chat_endpoint(request: ChatRequest):
             llm_result = llm.invoke(formatted_prompt)
             answer = llm_result.content.strip()
             
-            # Clean any pre-existing disclaimers to prevent duplicates
+            # Clean any pre-existing disclaimers to prevent duplicates in text response
             for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
                 if d in answer:
                     answer = answer.replace(d, "").strip()
             
-            # Append correct disclaimer depending on whether fallback was triggered
-            if "general knowledge" in answer.lower():
-                answer = f"{answer}\n\n{DISCLAIMER_AI}"
-            else:
-                answer = f"{answer}\n\n{DISCLAIMER_UNFOLDING}"
+            # Determine if fallback to general knowledge was triggered
+            is_general_knowledge = "general knowledge" in answer.lower()
                 
             top_ref = docs[0].metadata.get("reference", "1:1")
             
@@ -296,7 +294,8 @@ async def chat_endpoint(request: ChatRequest):
             return ChatResponse(
                 answer=answer,
                 reference=top_ref,
-                suggested_questions=suggested[:3]
+                suggested_questions=suggested[:3],
+                is_general_knowledge=is_general_knowledge
             )
         except Exception as err:
             print(f"RAG Gemini Pipeline Runtime Error: {err}. Falling back to offline semantic overlap.")
@@ -340,16 +339,13 @@ async def chat_endpoint(request: ChatRequest):
             llm_result = llm.invoke(formatted_prompt)
             answer = llm_result.content.strip()
             
-            # Clean any pre-existing disclaimers to prevent duplicates
+            # Clean any pre-existing disclaimers to prevent duplicates in text response
             for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
                 if d in answer:
                     answer = answer.replace(d, "").strip()
             
-            # Append correct disclaimer depending on whether fallback was triggered
-            if "general knowledge" in answer.lower():
-                answer = f"{answer}\n\n{DISCLAIMER_AI}"
-            else:
-                answer = f"{answer}\n\n{DISCLAIMER_UNFOLDING}"
+            # Determine if fallback to general knowledge was triggered
+            is_general_knowledge = "general knowledge" in answer.lower()
                 
             top_ref = docs[0].metadata.get("reference", "1:1")
             
@@ -365,7 +361,8 @@ async def chat_endpoint(request: ChatRequest):
             return ChatResponse(
                 answer=answer,
                 reference=top_ref,
-                suggested_questions=suggested[:3]
+                suggested_questions=suggested[:3],
+                is_general_knowledge=is_general_knowledge
             )
         except Exception as err:
             print(f"RAG OpenAI Pipeline Runtime Error: {err}. Falling back to offline semantic overlap.")
@@ -400,7 +397,10 @@ async def chat_endpoint(request: ChatRequest):
     answer = top_doc.metadata["response"]
     
     # Mode 3 is purely retrieved directly from the offline unfoldingWord CSV database
-    answer = f"{answer}\n\n{DISCLAIMER_UNFOLDING}"
+    # Strip any accidental disclaimers from database response
+    for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
+        if d in answer:
+            answer = answer.replace(d, "").strip()
         
     top_ref = top_doc.metadata["reference"]
     
@@ -416,7 +416,8 @@ async def chat_endpoint(request: ChatRequest):
     return ChatResponse(
         answer=answer,
         reference=top_ref,
-        suggested_questions=suggested[:3]
+        suggested_questions=suggested[:3],
+        is_general_knowledge=False
     )
 
 def normalize_book_code(book: str) -> str:

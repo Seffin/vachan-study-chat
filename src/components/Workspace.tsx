@@ -23,6 +23,7 @@ interface Message {
   timestamp: string;
   versesHighlighted?: string[];
   isCustom?: boolean;
+  isGeneralKnowledge?: boolean;
 }
 
 // Helper to translate full book names into standard 3-letter USFM codes
@@ -321,7 +322,8 @@ export default function Workspace({ selectedBook, setSelectedBook, onBackToLandi
         sender: "ai",
         text: data.answer,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        versesHighlighted: data.reference ? [data.reference.split(":")[1]] : []
+        versesHighlighted: data.reference ? [data.reference.split(":")[1]] : [],
+        isGeneralKnowledge: data.is_general_knowledge || false
       };
       setMessages(prev => [...prev, newAIMessage]);
 
@@ -672,9 +674,16 @@ export default function Workspace({ selectedBook, setSelectedBook, onBackToLandi
                   </div>
 
                   {/* Disclaimer - REQUIRED EXACTLY */}
-                  <div className="mt-4 pt-3 border-t border-zinc-200/60 dark:border-zinc-800/80 text-[10px] italic text-zinc-400 dark:text-zinc-500 select-none flex items-center gap-1">
-                    <span>This is an AI-generated response based on the unfoldingWord dataset.</span>
-                  </div>
+                  {message.id !== "init-1" && !message.id.startsWith("init-") && (
+                    <div className="mt-4 pt-3 border-t border-zinc-200/60 dark:border-zinc-800/80 text-[10px] italic text-zinc-400 dark:text-zinc-500 select-none flex items-center gap-1">
+                      <span>
+                        {message.isGeneralKnowledge 
+                          ? "This is an AI-generated response based on the unfoldingWord dataset." 
+                          : "This response based on the unfoldingWord dataset."
+                        }
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <span className="text-[10px] text-zinc-400 dark:text-zinc-500 pl-1">
