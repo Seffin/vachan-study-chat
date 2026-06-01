@@ -261,10 +261,7 @@ async def chat_endpoint(request: ChatRequest):
     if retriever_mode == "gemini" and GEMINI_KEY:
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
-            gemini_model = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
-            if "2.5" in gemini_model:
-                print(f"[RAG WARNING] Invalid model '{gemini_model}' corrected to 'gemini-1.5-flash'.")
-                gemini_model = "gemini-1.5-flash"
+            gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
             temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.1"))
             llm = ChatGoogleGenerativeAI(model=gemini_model, google_api_key=GEMINI_KEY, temperature=temperature)
             
