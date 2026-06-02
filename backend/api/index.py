@@ -237,11 +237,18 @@ def get_retriever_for_book(book_code: str) -> tuple:
 # 📊 PERSISTENT TOKEN MONITORING & RATE-LIMITS (GEMINI FREE TIER)
 # =====================================================================
 
-TOKENS_FILE = os.path.join(DATA_DIR, "tokens.json")
+# Check if running in Vercel (or other serverless environment where file writing might fail)
+# On Vercel, /tmp is the only writeable directory.
+if os.environ.get("VERCEL") == "1" or os.environ.get("VERCEL_ENV") or not os.access(DATA_DIR, os.W_OK) if os.path.exists(DATA_DIR) else False:
+    TOKENS_FILE = "/tmp/tokens.json"
+else:
+    TOKENS_FILE = os.path.join(DATA_DIR, "tokens.json")
+
+# In-memory backup dictionary to guarantee zero-fail operation
+_in_memory_tokens = None
 
 def load_tokens_data() -> dict:
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR, exist_ok=True)
+    global _in_memory_tokens
     
     default_data = {
         "total_tokens_used": 0,
@@ -253,14 +260,35 @@ def load_tokens_data() -> dict:
         "last_day_reset_time": time.time()
     }
     
+    # Ensure parent directory of TOKENS_FILE exists
+    tokens_dir = os.path.dirname(TOKENS_FILE)
+    if tokens_dir:
+        try:
+            os.makedirs(tokens_dir, exist_ok=True)
+        except Exception as e:
+            print(f"RAG System: Failed to create tokens directory {tokens_dir} ({e}). Using in-memory state fallback.")
+            if _in_memory_tokens is None:
+                _in_memory_tokens = default_data.copy()
+            return _in_memory_tokens
+
+    # If already using in-memory backup, return it
+    if _in_memory_tokens is not None:
+        # Fill in any missing keys
+        for key, val in default_data.items():
+            if key not in _in_memory_tokens:
+                _in_memory_tokens[key] = val
+        return _in_memory_tokens
+
     if not os.path.exists(TOKENS_FILE):
         try:
             with open(TOKENS_FILE, "w", encoding="utf-8") as f:
                 json.dump(default_data, f)
             return default_data
         except Exception as e:
-            print(f"Error creating tokens file: {e}")
-            return default_data
+            print(f"Error creating tokens file ({e}). Falling back to in-memory dictionary.")
+            _in_memory_tokens = default_data.copy()
+            return _in_memory_tokens
+            
     try:
         with open(TOKENS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -270,15 +298,20 @@ def load_tokens_data() -> dict:
                 data[key] = val
         return data
     except Exception as e:
-        print(f"Error loading tokens file ({e}), returning default.")
-        return default_data
+        print(f"Error loading tokens file ({e}). Falling back to in-memory state.")
+        if _in_memory_tokens is None:
+            _in_memory_tokens = default_data.copy()
+        return _in_memory_tokens
 
 def save_tokens_data(data: dict):
+    global _in_memory_tokens
+    # Always keep in-memory backup updated
+    _in_memory_tokens = data
     try:
         with open(TOKENS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f)
     except Exception as e:
-        print(f"Error saving tokens file: {e}")
+        print(f"Error saving tokens file ({e}). Token state is preserved in-memory.")
 
 def is_rate_limited() -> tuple:
     data = load_tokens_data()
