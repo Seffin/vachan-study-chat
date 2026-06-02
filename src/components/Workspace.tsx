@@ -327,6 +327,11 @@ export default function Workspace({
     try {
       console.log(`API Chat Request: Sending query to ${apiURL}/api/chat...`);
       
+      // Extract all previous user questions in the current chat session
+      const userQueryHistory = messages
+        .filter((msg) => msg.sender === "user")
+        .map((msg) => msg.text);
+
       // 2. Make POST fetch request to backend
       const response = await fetch(`${apiURL}/api/chat`, {
         method: "POST",
@@ -335,7 +340,8 @@ export default function Workspace({
         },
         body: JSON.stringify({
           book: getBookCode(selectedBook),
-          message: text
+          message: text,
+          history: userQueryHistory
         })
       });
 

@@ -85,7 +85,7 @@ class SemanticRetriever:
             }
             self.docs.append(Document(page_content, metadata))
 
-    def retrieve(self, query: str, k: int = 4) -> List[Document]:
+    def retrieve(self, query: str, k: int = 10) -> List[Document]:
         query_words = set(query.lower().split())
         scored_docs = []
         
@@ -104,7 +104,7 @@ class SemanticRetriever:
         return [doc for _, doc in scored_docs[:k]]
 
     def invoke(self, query: str) -> List[Document]:
-        return self.retrieve(query, k=4)
+        return self.retrieve(query, k=10)
 
 # LangChain prompt template
 from langchain_core.prompts import PromptTemplate
@@ -167,7 +167,7 @@ def get_retriever_for_book(book_code: str) -> tuple:
             if os.path.exists(index_path) and os.path.exists(os.path.join(index_path, "index.faiss")):
                 print(f"RAG System: Persistent FAISS Index ({active_provider}) found for '{book_code}' at {index_path}. Loading...")
                 vectorstore = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
-                book_retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+                book_retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
                 retrievers[book_code] = (active_provider, book_retriever)
                 return retrievers[book_code]
             else:
@@ -389,9 +389,15 @@ def extract_token_usage(llm_result, prompt_str: str) -> dict:
 # 🌐 API SCHEMAS & API ENDPOINTS
 # =====================================================================
 
+def normalize_text(text: str) -> str:
+    if not text:
+        return ""
+    return re.sub(r'[^a-z0-9]', '', text.lower())
+
 class ChatRequest(BaseModel):
     book: str
     message: str
+    history: Optional[List[str]] = []
 
 class ChatResponse(BaseModel):
     answer: str
@@ -436,7 +442,7 @@ async def chat_endpoint(request: ChatRequest):
             llm = ChatGoogleGenerativeAI(model=gemini_model, google_api_key=GEMINI_KEY, temperature=temperature)
             
             docs = active_retriever.invoke(query)
-            context_str = "\n---\n".join([d.page_content for d in docs])
+            context_str = "\n---\n".join([d.page_content for d in docs[:4]])
             
             formatted_prompt = prompt_tmpl.format(context=context_str, question=query)
             llm_result = llm.invoke(formatted_prompt)
@@ -456,14 +462,21 @@ async def chat_endpoint(request: ChatRequest):
                 
             top_ref = docs[0].metadata.get("reference", "1:1")
             
+            excluded_set = {normalize_text(q) for q in (request.history or []) + [query]}
             suggested = []
             for doc in docs[1:]:
                 q = doc.metadata.get("question")
-                if q and q.lower() not in query.lower() and q not in suggested:
-                    suggested.append(q)
+                if q:
+                    norm_q = normalize_text(q)
+                    if norm_q not in excluded_set and q not in suggested:
+                        suggested.append(q)
             
-            if not suggested:
-                suggested = ["What does the text teach?", "Explain the passage further"]
+            defaults = ["What does the text teach?", "Explain the passage further", "What are the key themes?"]
+            for d in defaults:
+                if len(suggested) >= 3:
+                    break
+                if normalize_text(d) not in excluded_set and d not in suggested:
+                    suggested.append(d)
                 
             # Update rates and quotas
             stats = check_and_update_rate_limits()
@@ -518,7 +531,7 @@ async def chat_endpoint(request: ChatRequest):
             llm = ChatOpenAI(model=model_name, temperature=temperature, openai_api_key=OPENAI_KEY)
             
             docs = active_retriever.invoke(query)
-            context_str = "\n---\n".join([d.page_content for d in docs])
+            context_str = "\n---\n".join([d.page_content for d in docs[:4]])
             
             formatted_prompt = prompt_tmpl.format(context=context_str, question=query)
             llm_result = llm.invoke(formatted_prompt)
@@ -538,14 +551,21 @@ async def chat_endpoint(request: ChatRequest):
                 
             top_ref = docs[0].metadata.get("reference", "1:1")
             
+            excluded_set = {normalize_text(q) for q in (request.history or []) + [query]}
             suggested = []
             for doc in docs[1:]:
                 q = doc.metadata.get("question")
-                if q and q.lower() not in query.lower() and q not in suggested:
-                    suggested.append(q)
+                if q:
+                    norm_q = normalize_text(q)
+                    if norm_q not in excluded_set and q not in suggested:
+                        suggested.append(q)
             
-            if not suggested:
-                suggested = ["What does the text teach?", "Explain the passage further"]
+            defaults = ["What does the text teach?", "Explain the passage further", "What are the key themes?"]
+            for d in defaults:
+                if len(suggested) >= 3:
+                    break
+                if normalize_text(d) not in excluded_set and d not in suggested:
+                    suggested.append(d)
                 
             # Update rates and quotas
             stats = check_and_update_rate_limits()
@@ -592,7 +612,7 @@ async def chat_endpoint(request: ChatRequest):
                 active_retriever = SemanticRetriever(dummy_df)
 
     # Mode 3: Offline Semantic Overlap (Zero LLM, Zero Cost)
-    docs = active_retriever.retrieve(query, k=4)
+    docs = active_retriever.retrieve(query, k=10)
     top_doc = docs[0]
     answer = top_doc.metadata["response"]
     
@@ -604,14 +624,21 @@ async def chat_endpoint(request: ChatRequest):
         
     top_ref = top_doc.metadata["reference"]
     
+    excluded_set = {normalize_text(q) for q in (request.history or []) + [query]}
     suggested = []
     for doc in docs[1:]:
         q = doc.metadata["question"]
-        if q.lower() not in query.lower() and q not in suggested:
-            suggested.append(q)
-            
-    if not suggested:
-        suggested = ["What does the text teach?", "Explain the passage further"]
+        if q:
+            norm_q = normalize_text(q)
+            if norm_q not in excluded_set and q not in suggested:
+                suggested.append(q)
+                
+    defaults = ["What does the text teach?", "Explain the passage further", "What are the key themes?"]
+    for d in defaults:
+        if len(suggested) >= 3:
+            break
+        if normalize_text(d) not in excluded_set and d not in suggested:
+            suggested.append(d)
 
     # Append warning message if they were rate-limited or out of tokens
     if rate_limited:
