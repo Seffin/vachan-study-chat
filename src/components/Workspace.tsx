@@ -14,6 +14,7 @@ interface WorkspaceProps {
   selectedBook: string;
   setSelectedBook: (bookName: string) => void;
   onBackToLanding: () => void;
+  onUpdateTokens?: (used: number, totalUsed: number, pending: number, reqToday: number, reqMinute: number) => void;
 }
 
 interface Message {
@@ -136,7 +137,12 @@ const getMockScriptureForBook = (bookName: string, chapterNum: number = 1): Sect
   ];
 };
 
-export default function Workspace({ selectedBook, setSelectedBook, onBackToLanding }: WorkspaceProps) {
+export default function Workspace({ 
+  selectedBook, 
+  setSelectedBook, 
+  onBackToLanding,
+  onUpdateTokens
+}: WorkspaceProps) {
   // Layout Drawers for Mobile
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
@@ -338,6 +344,17 @@ export default function Workspace({ selectedBook, setSelectedBook, onBackToLandi
       }
 
       const data = await response.json();
+
+      // Update parent token metrics if available in response
+      if (onUpdateTokens && typeof data.total_tokens_used === "number") {
+        onUpdateTokens(
+          data.tokens_used || 0,
+          data.total_tokens_used,
+          data.pending_tokens,
+          data.requests_today || 0,
+          data.requests_this_minute || 0
+        );
+      }
 
       // 3. Append the AI's answer
       const newAIMessage: Message = {
@@ -702,7 +719,7 @@ export default function Workspace({ selectedBook, setSelectedBook, onBackToLandi
                     <div className="mt-4 pt-3 border-t border-zinc-200/60 dark:border-zinc-800/80 text-[10px] italic text-zinc-400 dark:text-zinc-500 select-none flex items-center gap-1">
                       <span>
                         {message.isGeneralKnowledge 
-                          ? "This is an AI-generated response based on the unfoldingWord dataset." 
+                          ? "⚠️ This is an AI-generated response based on the unfoldingWord dataset." 
                           : "This response based on the unfoldingWord dataset."
                         }
                       </span>

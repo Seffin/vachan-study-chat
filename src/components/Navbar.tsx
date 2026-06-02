@@ -9,9 +9,26 @@ interface NavbarProps {
   setView: (view: "landing" | "workspace" | "notes" | "groups") => void;
   theme: "light" | "dark";
   setTheme: (theme: "light" | "dark") => void;
+  totalTokensUsed: number;
+  pendingTokens: number;
+  tokenLimit: number;
+  requestsToday: number;
+  requestsThisMinute: number;
+  onResetTokens: () => void;
 }
 
-export default function Navbar({ view, setView, theme, setTheme }: NavbarProps) {
+export default function Navbar({ 
+  view, 
+  setView, 
+  theme, 
+  setTheme,
+  totalTokensUsed,
+  pendingTokens,
+  tokenLimit,
+  requestsToday,
+  requestsThisMinute,
+  onResetTokens
+}: NavbarProps) {
   const tabs = [
     { id: "landing", label: "Study Room", icon: Compass },
     { id: "notes", label: "My Notes", icon: FileText },
@@ -69,6 +86,77 @@ export default function Navbar({ view, setView, theme, setTheme }: NavbarProps) 
 
         {/* Right: Actions (Radio Theme Switcher & Profile) */}
         <div className="flex items-center gap-4">
+
+          {/* Token Status Pill (Glassmorphic design with active limits display) */}
+          <div className="relative group flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-stone-50 hover:bg-stone-105/80 dark:bg-zinc-900 dark:hover:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-800 text-xs shadow-sm transition-all duration-300">
+            <span className="flex items-center gap-1 font-bold text-amber-600 dark:text-amber-500 select-none">
+              <svg className="w-3.5 h-3.5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              <span>Gemini:</span>
+            </span>
+            
+            <div className="flex flex-col gap-0.5 min-w-[90px]">
+              <div className="flex justify-between text-[9px] font-extrabold text-zinc-505 dark:text-zinc-400 font-sans tracking-wide">
+                <span>{totalTokensUsed.toLocaleString()} used</span>
+                <span>{pendingTokens.toLocaleString()} left</span>
+              </div>
+              <div className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    pendingTokens === 0 
+                      ? "bg-red-500" 
+                      : (totalTokensUsed / (totalTokensUsed + pendingTokens || 1)) > 0.8
+                      ? "bg-amber-500"
+                      : "bg-emerald-500"
+                  }`} 
+                  style={{ width: `${Math.min(100, (totalTokensUsed / (totalTokensUsed + pendingTokens || 1)) * 100)}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Quota reset button */}
+            <button
+              onClick={onResetTokens}
+              title="Refill Gemini Token Quota"
+              className="p-1 hover:bg-zinc-200 dark:hover:bg-zinc-700/60 text-zinc-400 dark:text-zinc-500 hover:text-amber-600 dark:hover:text-amber-500 rounded transition-colors duration-200 cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3" />
+              </svg>
+            </button>
+
+            {/* Premium Rich Tooltip displaying Free Tier Limits */}
+            <div className="absolute top-full right-0 mt-2.5 w-60 p-3.5 rounded-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-850 shadow-xl opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none transition-all duration-300 z-50">
+              <h4 className="font-sans font-bold text-stone-900 dark:text-zinc-100 text-xs border-b border-zinc-150 dark:border-zinc-800 pb-1.5 mb-2 flex items-center gap-1">
+                <span>Gemini API Free Tier Status</span>
+              </h4>
+              <div className="space-y-1.5 text-[10px] text-zinc-500 dark:text-zinc-450 font-sans leading-relaxed">
+                <div className="flex justify-between">
+                  <span className="font-semibold">Rate Limit:</span>
+                  <span className={`font-bold ${requestsThisMinute >= 15 ? "text-red-500" : "text-zinc-800 dark:text-zinc-200"}`}>
+                    {requestsThisMinute}/15 RPM (Min)
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-semibold">Daily Requests:</span>
+                  <span className={`font-bold ${requestsToday >= 1500 ? "text-red-500" : "text-zinc-800 dark:text-zinc-200"}`}>
+                    {requestsToday.toLocaleString()}/1,500 RPD
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-semibold">Token Limit (TPM):</span>
+                  <span>1,000,000 TPM</span>
+                </div>
+                <div className="pt-2 mt-1 border-t border-zinc-150 dark:border-zinc-850 flex items-center gap-1 text-[9px] text-amber-600 dark:text-amber-500 font-bold select-none">
+                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Auto-fallbacks local offline if limited</span>
+                </div>
+              </div>
+            </div>
+          </div>
           
           {/* Segmented Radio Theme Switcher */}
           <div 

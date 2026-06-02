@@ -12,6 +12,60 @@ export default function Home() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [mounted, setMounted] = useState(false);
 
+  // 📊 Token tracking & Gemini free tier states
+  const [totalTokensUsed, setTotalTokensUsed] = useState<number>(0);
+  const [pendingTokens, setPendingTokens] = useState<number>(1000000);
+  const [tokenLimit, setTokenLimit] = useState<number>(1000000);
+  const [requestsToday, setRequestsToday] = useState<number>(0);
+  const [requestsThisMinute, setRequestsThisMinute] = useState<number>(0);
+
+  // Fetch token allocation status on app mount
+  useEffect(() => {
+    const fetchTokens = async () => {
+      try {
+        const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+        const res = await fetch(`${apiURL}/api/tokens`);
+        if (res.ok) {
+          const data = await res.json();
+          setTotalTokensUsed(data.total_tokens_used);
+          setPendingTokens(data.pending_tokens);
+          setTokenLimit(data.limit);
+          setRequestsToday(data.requests_today);
+          setRequestsThisMinute(data.requests_this_minute);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch initial token values", err);
+      }
+    };
+    fetchTokens();
+  }, []);
+
+  // Post reset request to backend to refresh quotas
+  const handleResetTokens = async () => {
+    try {
+      const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const res = await fetch(`${apiURL}/api/tokens/reset`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setTotalTokensUsed(data.total_tokens_used);
+        setPendingTokens(data.pending_tokens);
+        setTokenLimit(data.limit);
+        setRequestsToday(data.requests_today);
+        setRequestsThisMinute(data.requests_this_minute);
+      }
+    } catch (err) {
+      console.warn("Failed to reset token values", err);
+    }
+  };
+
+  // Callback to update current state from child send actions
+  const handleUpdateTokens = (used: number, totalUsed: number, pending: number, reqToday: number, reqMinute: number) => {
+    setTotalTokensUsed(totalUsed);
+    setPendingTokens(pending);
+    setRequestsToday(reqToday);
+    setRequestsThisMinute(reqMinute);
+  };
+
   // View state: 'landing' (Study Room), 'workspace' (Multi-Pane), 'notes', 'groups'
   const [view, setView] = useState<"landing" | "workspace" | "notes" | "groups">("landing");
 
@@ -107,6 +161,12 @@ export default function Home() {
         setView={setView} 
         theme={theme} 
         setTheme={setTheme} 
+        totalTokensUsed={totalTokensUsed}
+        pendingTokens={pendingTokens}
+        tokenLimit={tokenLimit}
+        requestsToday={requestsToday}
+        requestsThisMinute={requestsThisMinute}
+        onResetTokens={handleResetTokens}
       />
 
       {/* Main Content Areas with smooth routing transitions */}
@@ -125,6 +185,7 @@ export default function Home() {
               selectedBook={selectedBook} 
               setSelectedBook={setSelectedBook}
               onBackToLanding={() => setView("landing")}
+              onUpdateTokens={handleUpdateTokens}
             />
           </div>
         )}

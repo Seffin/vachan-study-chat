@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import time
 import pandas as pd
 import subprocess
 import urllib.request
@@ -233,6 +234,125 @@ def get_retriever_for_book(book_code: str) -> tuple:
         return retrievers[book_code]
 
 # =====================================================================
+# 📊 PERSISTENT TOKEN MONITORING & RATE-LIMITS (GEMINI FREE TIER)
+# =====================================================================
+
+TOKENS_FILE = os.path.join(DATA_DIR, "tokens.json")
+
+def load_tokens_data() -> dict:
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR, exist_ok=True)
+    
+    default_data = {
+        "total_tokens_used": 0,
+        "pending_tokens": 1000000,
+        "limit": 1000000,
+        "requests_today": 0,
+        "requests_this_minute": 0,
+        "last_minute_reset_time": time.time(),
+        "last_day_reset_time": time.time()
+    }
+    
+    if not os.path.exists(TOKENS_FILE):
+        try:
+            with open(TOKENS_FILE, "w", encoding="utf-8") as f:
+                json.dump(default_data, f)
+            return default_data
+        except Exception as e:
+            print(f"Error creating tokens file: {e}")
+            return default_data
+    try:
+        with open(TOKENS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # Fill in any missing keys
+        for key, val in default_data.items():
+            if key not in data:
+                data[key] = val
+        return data
+    except Exception as e:
+        print(f"Error loading tokens file ({e}), returning default.")
+        return default_data
+
+def save_tokens_data(data: dict):
+    try:
+        with open(TOKENS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception as e:
+        print(f"Error saving tokens file: {e}")
+
+def is_rate_limited() -> tuple:
+    data = load_tokens_data()
+    now = time.time()
+    
+    # Check day reset
+    if now - data.get("last_day_reset_time", 0.0) >= 86400:
+        return False, ""
+        
+    # Check minute reset
+    if now - data.get("last_minute_reset_time", 0.0) >= 60:
+        return False, ""
+        
+    if data["requests_this_minute"] >= 15:
+        return True, "Gemini free tier rate limit exceeded (15 RPM). Switching to local offline mode."
+    if data["requests_today"] >= 1500:
+        return True, "Gemini free tier daily limit exceeded (1500 RPD). Switching to local offline mode."
+    return False, ""
+
+def check_and_update_rate_limits() -> dict:
+    data = load_tokens_data()
+    now = time.time()
+    
+    # Reset day count if needed
+    if now - data.get("last_day_reset_time", 0.0) >= 86400:
+        data["requests_today"] = 0
+        data["last_day_reset_time"] = now
+        data["pending_tokens"] = data["limit"] # Refill tokens daily
+        
+    # Reset minute count if needed
+    if now - data.get("last_minute_reset_time", 0.0) >= 60:
+        data["requests_this_minute"] = 0
+        data["last_minute_reset_time"] = now
+        
+    # Increment counts for this request
+    data["requests_today"] += 1
+    data["requests_this_minute"] += 1
+    
+    save_tokens_data(data)
+    return data
+
+def extract_token_usage(llm_result, prompt_str: str) -> dict:
+    # Modern LangChain standard (e.g. usage_metadata)
+    if hasattr(llm_result, "usage_metadata") and llm_result.usage_metadata:
+        return {
+            "prompt": llm_result.usage_metadata.get("input_tokens", 0),
+            "completion": llm_result.usage_metadata.get("output_tokens", 0),
+            "total": llm_result.usage_metadata.get("total_tokens", 0)
+        }
+    
+    # Response metadata standard
+    if hasattr(llm_result, "response_metadata") and llm_result.response_metadata:
+        meta = llm_result.response_metadata
+        if "token_usage" in meta:
+            usage = meta["token_usage"]
+            if isinstance(usage, dict):
+                return {
+                    "prompt": usage.get("prompt_tokens", 0),
+                    "completion": usage.get("completion_tokens", 0),
+                    "total": usage.get("total_tokens", 0)
+                }
+    
+    # Fallback to standard word/character approximate counter (approx. 4 chars per token)
+    prompt_chars = len(prompt_str)
+    completion_chars = len(llm_result.content) if hasattr(llm_result, "content") else 0
+    prompt_tokens = max(1, int(prompt_chars / 4))
+    completion_tokens = max(1, int(completion_chars / 4))
+    return {
+        "prompt": prompt_tokens,
+        "completion": completion_tokens,
+        "total": prompt_tokens + completion_tokens
+    }
+
+# =====================================================================
 # 🌐 API SCHEMAS & API ENDPOINTS
 # =====================================================================
 
@@ -245,6 +365,11 @@ class ChatResponse(BaseModel):
     reference: str
     suggested_questions: List[str]
     is_general_knowledge: bool = False
+    tokens_used: int = 0
+    total_tokens_used: int = 0
+    pending_tokens: int = 0
+    requests_today: int = 0
+    requests_this_minute: int = 0
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
@@ -255,7 +380,19 @@ async def chat_endpoint(request: ChatRequest):
     
     print(f"API Chat Query: '{query}' for book '{book_code}'")
 
+    # 1. Load current tokens & rate limit state
+    rate_limited, limit_msg = is_rate_limited()
+    tokens_data = load_tokens_data()
+    
+    # Resolve retriever for book (gives us the desired active_provider mode if API keys exist)
     retriever_mode, active_retriever = get_retriever_for_book(book_code)
+    
+    # Overwrite provider mode if quota exhausted or rate limited
+    if tokens_data["pending_tokens"] <= 0 or rate_limited:
+        print("RAG System: Rate limit active or quota exhausted. Falling back to local offline semantic.")
+        retriever_mode = "semantic"
+
+    tokens_used = 0
 
     # Mode 1: Native Gemini RAG
     if retriever_mode == "gemini" and GEMINI_KEY:
@@ -271,6 +408,10 @@ async def chat_endpoint(request: ChatRequest):
             formatted_prompt = prompt_tmpl.format(context=context_str, question=query)
             llm_result = llm.invoke(formatted_prompt)
             answer = llm_result.content.strip()
+            
+            # Extract token usage
+            usage = extract_token_usage(llm_result, formatted_prompt)
+            tokens_used = usage["total"]
             
             # Clean any pre-existing disclaimers to prevent duplicates in text response
             for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
@@ -291,11 +432,22 @@ async def chat_endpoint(request: ChatRequest):
             if not suggested:
                 suggested = ["What does the text teach?", "Explain the passage further"]
                 
+            # Update rates and quotas
+            stats = check_and_update_rate_limits()
+            stats["total_tokens_used"] += tokens_used
+            stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
+            save_tokens_data(stats)
+            
             return ChatResponse(
                 answer=answer,
                 reference=top_ref,
                 suggested_questions=suggested[:3],
-                is_general_knowledge=is_general_knowledge
+                is_general_knowledge=is_general_knowledge,
+                tokens_used=tokens_used,
+                total_tokens_used=stats["total_tokens_used"],
+                pending_tokens=stats["pending_tokens"],
+                requests_today=stats["requests_today"],
+                requests_this_minute=stats["requests_this_minute"]
             )
         except Exception as err:
             print(f"RAG Gemini Pipeline Runtime Error: {err}. Falling back to offline semantic overlap.")
@@ -339,6 +491,10 @@ async def chat_endpoint(request: ChatRequest):
             llm_result = llm.invoke(formatted_prompt)
             answer = llm_result.content.strip()
             
+            # Extract token usage
+            usage = extract_token_usage(llm_result, formatted_prompt)
+            tokens_used = usage["total"]
+            
             # Clean any pre-existing disclaimers to prevent duplicates in text response
             for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
                 if d in answer:
@@ -358,11 +514,22 @@ async def chat_endpoint(request: ChatRequest):
             if not suggested:
                 suggested = ["What does the text teach?", "Explain the passage further"]
                 
+            # Update rates and quotas
+            stats = check_and_update_rate_limits()
+            stats["total_tokens_used"] += tokens_used
+            stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
+            save_tokens_data(stats)
+            
             return ChatResponse(
                 answer=answer,
                 reference=top_ref,
                 suggested_questions=suggested[:3],
-                is_general_knowledge=is_general_knowledge
+                is_general_knowledge=is_general_knowledge,
+                tokens_used=tokens_used,
+                total_tokens_used=stats["total_tokens_used"],
+                pending_tokens=stats["pending_tokens"],
+                requests_today=stats["requests_today"],
+                requests_this_minute=stats["requests_this_minute"]
             )
         except Exception as err:
             print(f"RAG OpenAI Pipeline Runtime Error: {err}. Falling back to offline semantic overlap.")
@@ -413,11 +580,83 @@ async def chat_endpoint(request: ChatRequest):
     if not suggested:
         suggested = ["What does the text teach?", "Explain the passage further"]
 
+    # Append warning message if they were rate-limited or out of tokens
+    if rate_limited:
+        answer += f"\n\n*⚠️ Warning: {limit_msg} Served offline response.*"
+    elif tokens_data["pending_tokens"] <= 0:
+        answer += "\n\n*⚠️ Warning: Token quota completely exhausted (0 pending tokens left). Served offline response.*"
+
+    # Just read tokens data without increasing count (zero-cost)
+    stats = load_tokens_data()
+
     return ChatResponse(
         answer=answer,
         reference=top_ref,
         suggested_questions=suggested[:3],
-        is_general_knowledge=False
+        is_general_knowledge=False,
+        tokens_used=0,
+        total_tokens_used=stats["total_tokens_used"],
+        pending_tokens=stats["pending_tokens"],
+        requests_today=stats["requests_today"],
+        requests_this_minute=stats["requests_this_minute"]
+    )
+
+
+class TokenStatusResponse(BaseModel):
+    total_tokens_used: int
+    pending_tokens: int
+    limit: int
+    requests_today: int
+    requests_this_minute: int
+    rpm_limit: int = 15
+    rpd_limit: int = 1500
+
+@app.get("/api/tokens", response_model=TokenStatusResponse)
+async def get_tokens_endpoint():
+    # Dry check resets
+    data = load_tokens_data()
+    now = time.time()
+    
+    # Check day reset
+    if now - data.get("last_day_reset_time", 0.0) >= 86400:
+        data["requests_today"] = 0
+        data["last_day_reset_time"] = now
+        data["pending_tokens"] = data["limit"]
+        save_tokens_data(data)
+        
+    # Check minute reset
+    if now - data.get("last_minute_reset_time", 0.0) >= 60:
+        data["requests_this_minute"] = 0
+        data["last_minute_reset_time"] = now
+        save_tokens_data(data)
+        
+    return TokenStatusResponse(
+        total_tokens_used=data["total_tokens_used"],
+        pending_tokens=data["pending_tokens"],
+        limit=data["limit"],
+        requests_today=data["requests_today"],
+        requests_this_minute=data["requests_this_minute"]
+    )
+
+@app.post("/api/tokens/reset", response_model=TokenStatusResponse)
+async def reset_tokens_endpoint():
+    default_data = {
+        "total_tokens_used": 0,
+        "pending_tokens": 1000000,
+        "limit": 1000000,
+        "requests_today": 0,
+        "requests_this_minute": 0,
+        "last_minute_reset_time": time.time(),
+        "last_day_reset_time": time.time()
+    }
+    save_tokens_data(default_data)
+    print("RAG System: Token metrics reset to defaults successfully.")
+    return TokenStatusResponse(
+        total_tokens_used=default_data["total_tokens_used"],
+        pending_tokens=default_data["pending_tokens"],
+        limit=default_data["limit"],
+        requests_today=default_data["requests_today"],
+        requests_this_minute=default_data["requests_this_minute"]
     )
 
 def normalize_book_code(book: str) -> str:
