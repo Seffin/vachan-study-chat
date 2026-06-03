@@ -1,12 +1,12 @@
 "use client";
 
 import React from "react";
-import { Sun, Moon, User, Compass, FileText, Users } from "lucide-react";
+import { Sun, Moon, User, Compass, FileText, Users, Database } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface NavbarProps {
-  view: "landing" | "workspace" | "notes" | "groups";
-  setView: (view: "landing" | "workspace" | "notes" | "groups") => void;
+  view: "landing" | "workspace" | "notes" | "groups" | "dataset_viewer";
+  setView: (view: "landing" | "workspace" | "notes" | "groups" | "dataset_viewer") => void;
   theme: "light" | "dark";
   setTheme: (theme: "light" | "dark") => void;
   totalTokensUsed: number;
@@ -33,6 +33,7 @@ export default function Navbar({
     { id: "landing", label: "Study Room", icon: Compass },
     { id: "notes", label: "My Notes", icon: FileText },
     { id: "groups", label: "Groups", icon: Users },
+    { id: "dataset_viewer", label: "Dataset Viewer", icon: Database },
   ] as const;
 
   return (

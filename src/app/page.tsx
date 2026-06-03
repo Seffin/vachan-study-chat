@@ -2,10 +2,21 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FileText, Users, Bookmark, Sparkles, Plus, Clock, Search, BookOpen, AlertCircle } from "lucide-react";
+import { FileText, Users, Bookmark, Sparkles, Plus, Clock, Search, BookOpen, AlertCircle, Database } from "lucide-react";
 import Navbar from "../components/Navbar";
 import StudyRoom from "../components/StudyRoom";
 import Workspace from "../components/Workspace";
+import { booksList, Section } from "../data/mockBible";
+
+export interface Message {
+  id: string;
+  sender: "user" | "ai";
+  text: string;
+  timestamp: string;
+  versesHighlighted?: string[];
+  isCustom?: boolean;
+  isGeneralKnowledge?: boolean;
+}
 
 export default function Home() {
   // Theme state: default to light per requirements
@@ -66,11 +77,53 @@ export default function Home() {
     setRequestsThisMinute(reqMinute);
   };
 
-  // View state: 'landing' (Study Room), 'workspace' (Multi-Pane), 'notes', 'groups'
-  const [view, setView] = useState<"landing" | "workspace" | "notes" | "groups">("landing");
+  // View state: 'landing' (Study Room), 'workspace' (Multi-Pane), 'notes', 'groups', 'dataset_viewer'
+  const [view, setView] = useState<"landing" | "workspace" | "notes" | "groups" | "dataset_viewer">("landing");
+
+  // 📝 Lifted Workspace states to persist across tab switches
+  const [workspaceMessages, setWorkspaceMessages] = useState<Message[]>([]);
+  const [workspaceSuggestedQuestions, setWorkspaceSuggestedQuestions] = useState<string[]>([]);
+  const [workspaceActiveHighlights, setWorkspaceActiveHighlights] = useState<string[]>([]);
+  const [workspaceSelectedChapter, setWorkspaceSelectedChapter] = useState(1);
+  const [workspaceSelectedVersion, setWorkspaceSelectedVersion] = useState("ULT");
+  const [workspaceSelectedVerse, setWorkspaceSelectedVerse] = useState<string>("");
+  const [workspaceScriptureContent, setWorkspaceScriptureContent] = useState<Section[]>([]);
+
+  // Q&A Dataset Viewer States
+  const [dataset, setDataset] = useState<Array<{Reference: string, Question: string, Response: string}>>([]);
+  const [datasetSearch, setDatasetSearch] = useState("");
+  const [datasetLoading, setDatasetLoading] = useState(false);
+  const [datasetError, setDatasetError] = useState("");
 
   // Selected Bible Book & Chapter State
   const [selectedBook, setSelectedBook] = useState("Matthew");
+
+  // Auto-fetch book Q&A dataset on view activation or book selection change
+  useEffect(() => {
+    if (view !== "dataset_viewer") return;
+    
+    const fetchDataset = async () => {
+      setDatasetLoading(true);
+      setDatasetError("");
+      try {
+        const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+        const res = await fetch(`${apiURL}/api/dataset/${selectedBook}`);
+        if (!res.ok) {
+          throw new Error(`HTTP Error Status ${res.status}`);
+        }
+        const data = await res.json();
+        setDataset(data.data || []);
+      } catch (err: any) {
+        console.warn("Failed to fetch book dataset", err);
+        setDatasetError(err.message || "Failed to load dataset");
+        setDataset([]);
+      } finally {
+        setDatasetLoading(false);
+      }
+    };
+    
+    fetchDataset();
+  }, [selectedBook, view]);
 
   // Notes and group items states for richer features
   const [notes, setNotes] = useState<Array<{id: string, title: string, content: string, date: string, book: string}>>([
@@ -186,6 +239,20 @@ export default function Home() {
               setSelectedBook={setSelectedBook}
               onBackToLanding={() => setView("landing")}
               onUpdateTokens={handleUpdateTokens}
+              messages={workspaceMessages}
+              setMessages={setWorkspaceMessages}
+              suggestedQuestions={workspaceSuggestedQuestions}
+              setSuggestedQuestions={setWorkspaceSuggestedQuestions}
+              activeHighlights={workspaceActiveHighlights}
+              setActiveHighlights={setWorkspaceActiveHighlights}
+              selectedChapter={workspaceSelectedChapter}
+              setSelectedChapter={setWorkspaceSelectedChapter}
+              selectedVersion={workspaceSelectedVersion}
+              setSelectedVersion={setWorkspaceSelectedVersion}
+              selectedVerse={workspaceSelectedVerse}
+              setSelectedVerse={setWorkspaceSelectedVerse}
+              scriptureContent={workspaceScriptureContent}
+              setScriptureContent={setWorkspaceScriptureContent}
             />
           </div>
         )}
@@ -392,6 +459,123 @@ export default function Home() {
                 </p>
               </div>
             </div>
+            </div>
+          </div>
+        )}
+        {/* VIEW 5: Dataset Viewer Page */}
+        {view === "dataset_viewer" && (
+          <div className="flex-1 overflow-y-auto w-full py-12 px-4 sm:px-6 lg:px-8 custom-transition">
+            <div className="max-w-4xl mx-auto w-full space-y-8">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-stone-250 dark:border-zinc-800 pb-6">
+                <div>
+                  <h1 className="font-serif font-black text-3xl sm:text-4xl text-stone-900 dark:text-zinc-50 tracking-tight flex items-center gap-2">
+                    <Database className="w-8 h-8 text-amber-600 dark:text-amber-500" />
+                    <span>unfoldingWord Q&A Dataset</span>
+                  </h1>
+                  <p className="text-stone-500 dark:text-zinc-400 mt-1.5 text-sm sm:text-base">
+                    Inspect the source questions and answers retrieved from Translation Questions.
+                  </p>
+                </div>
+              </div>
+
+              {/* Controls bar */}
+              <div className="flex flex-col sm:flex-row items-center gap-4 bg-[#f8f8f8] dark:bg-zinc-900/40 p-4 rounded-2xl border border-zinc-205 dark:border-zinc-800 shadow-sm">
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <span className="text-xs font-bold text-stone-500 dark:text-zinc-400 uppercase tracking-wider whitespace-nowrap">
+                    Active Book:
+                  </span>
+                  <select
+                    value={selectedBook}
+                    onChange={(e) => setSelectedBook(e.target.value)}
+                    className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-sm text-stone-900 dark:text-zinc-105 font-sans focus:outline-none focus:ring-1 focus:ring-amber-550 cursor-pointer min-w-[150px]"
+                  >
+                    {booksList.map((b) => (
+                      <option key={b.name} value={b.name}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="relative flex-1 w-full">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400 dark:text-zinc-550" />
+                  <input
+                    type="text"
+                    placeholder="Search questions or responses..."
+                    value={datasetSearch}
+                    onChange={(e) => setDatasetSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-amber-550 text-sm shadow-inner"
+                  />
+                </div>
+              </div>
+
+              {/* Data loading, error or cards list states */}
+              {datasetLoading ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {[1, 2, 3].map((n) => (
+                    <div key={n} className="p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 shadow-sm space-y-3 animate-pulse">
+                      <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-24"></div>
+                      <div className="h-5 bg-zinc-200 dark:bg-zinc-800 rounded w-3/4"></div>
+                      <div className="h-16 bg-zinc-200 dark:bg-zinc-800 rounded w-full"></div>
+                    </div>
+                  ))}
+                </div>
+              ) : datasetError ? (
+                <div className="p-6 rounded-2xl border border-red-500/20 bg-red-500/5 text-red-650 dark:text-red-500 text-sm flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                  <span>{datasetError} (Verify your backend FastAPI server is running locally)</span>
+                </div>
+              ) : (() => {
+                const filtered = dataset.filter((item) => {
+                  const query = datasetSearch.toLowerCase().trim();
+                  return (
+                    item.Question.toLowerCase().includes(query) ||
+                    item.Response.toLowerCase().includes(query) ||
+                    item.Reference.toLowerCase().includes(query)
+                  );
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-zinc-400 dark:text-zinc-500 font-sans">
+                      <Search className="w-12 h-12 mx-auto text-zinc-300 dark:text-zinc-800 mb-3" />
+                      <p>No matches found in the dataset for "{datasetSearch}".</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-4">
+                    <div className="text-xs font-bold text-zinc-450 dark:text-zinc-500 flex justify-between select-none">
+                      <span>SHOWING {filtered.length} QUESTIONS</span>
+                      <span>TOTAL {dataset.length} QUESTIONS</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      {filtered.map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 shadow-sm space-y-3 hover:border-amber-500/40 dark:hover:border-amber-500/40 custom-transition hover:shadow-md hover:-translate-y-0.5 group"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] px-2.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-500 font-bold select-none group-hover:bg-amber-500 group-hover:text-white custom-transition">
+                              {selectedBook} {item.Reference}
+                            </span>
+                          </div>
+
+                          <h4 className="font-serif font-bold text-lg text-zinc-900 dark:text-zinc-100 leading-snug">
+                            {item.Question}
+                          </h4>
+
+                          <p className="text-zinc-700 dark:text-zinc-300 text-sm sm:text-[14.5px] leading-relaxed font-sans bg-zinc-50 dark:bg-zinc-950/40 p-3.5 rounded-xl border border-zinc-150 dark:border-zinc-850/80">
+                            {item.Response}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

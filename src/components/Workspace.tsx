@@ -15,6 +15,20 @@ interface WorkspaceProps {
   setSelectedBook: (bookName: string) => void;
   onBackToLanding: () => void;
   onUpdateTokens?: (used: number, totalUsed: number, pending: number, reqToday: number, reqMinute: number) => void;
+  messages: Message[];
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  suggestedQuestions: string[];
+  setSuggestedQuestions: React.Dispatch<React.SetStateAction<string[]>>;
+  activeHighlights: string[];
+  setActiveHighlights: React.Dispatch<React.SetStateAction<string[]>>;
+  selectedChapter: number;
+  setSelectedChapter: React.Dispatch<React.SetStateAction<number>>;
+  selectedVersion: string;
+  setSelectedVersion: React.Dispatch<React.SetStateAction<string>>;
+  selectedVerse: string;
+  setSelectedVerse: React.Dispatch<React.SetStateAction<string>>;
+  scriptureContent: Section[];
+  setScriptureContent: React.Dispatch<React.SetStateAction<Section[]>>;
 }
 
 interface Message {
@@ -141,26 +155,29 @@ export default function Workspace({
   selectedBook, 
   setSelectedBook, 
   onBackToLanding,
-  onUpdateTokens
+  onUpdateTokens,
+  messages,
+  setMessages,
+  suggestedQuestions,
+  setSuggestedQuestions,
+  activeHighlights,
+  setActiveHighlights,
+  selectedChapter,
+  setSelectedChapter,
+  selectedVersion,
+  setSelectedVersion,
+  selectedVerse,
+  setSelectedVerse,
+  scriptureContent,
+  setScriptureContent
 }: WorkspaceProps) {
   // Layout Drawers for Mobile
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
 
-  // Core API Integration States
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Core API Integration States (kept local as they represent active transitions)
   const [inputValue, setInputValue] = useState("");
-  const [isLoading, setIsLoading] = useState(false); // Tracks loading status from API
-  const [activeHighlights, setActiveHighlights] = useState<string[]>([]); // Synchronized verse highlights
-  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
-
-  // Navigation states inside the scripture context reader pane
-  const [selectedChapter, setSelectedChapter] = useState(1);
-  const [selectedVersion, setSelectedVersion] = useState("ULT");
-  const [selectedVerse, setSelectedVerse] = useState<string>("");
-
-  // Dynamic Scripture Context Data (Loaded from API)
-  const [scriptureContent, setScriptureContent] = useState<Section[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Audio recording simulation state
   const [isRecording, setIsRecording] = useState(false);

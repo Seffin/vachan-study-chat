@@ -394,6 +394,30 @@ def normalize_text(text: str) -> str:
         return ""
     return re.sub(r'[^a-z0-9]', '', text.lower())
 
+OFFLINE_OVERVIEWS = {
+    "MAT": "📖 **Overview of Matthew:** The Gospel of Matthew serves as a legal and theological bridge between the Old and New Testaments. It emphasizes Jesus as the promised Messiah, tracing His royal lineage back to Abraham and David, and highlights the Kingdom of Heaven through key teachings like the Sermon on the Mount.",
+    "GEN": "📖 **Overview of Genesis:** Genesis is the book of beginnings. It documents the creation of the universe, the fall of humanity, and the covenant origin of God's chosen people through Abraham, Isaac, Jacob, and Joseph.",
+    "LEV": "📖 **Overview of Leviticus:** Leviticus is a handbook for priests and worshipers, focusing on the holiness of God and the purification of His people. It details sacrificial offerings, priestly consecration, laws of clean and unclean, the Day of Atonement, and the holiness code."
+}
+
+def is_overview_query(query: str) -> bool:
+    if not query:
+        return False
+    q_lower = query.lower().strip()
+    patterns = [
+        r'\boverview\b',
+        r'\bsummary\b',
+        r'\bintroduce\b',
+        r'\bintroduction\b',
+        r'\boutline\b',
+        r'\bthemes\b'
+    ]
+    for pattern in patterns:
+        if re.search(pattern, q_lower):
+            if not re.search(r'\b(?:ch|chapter|verse|v)\b|\d+[\s:]\d+', q_lower):
+                return True
+    return False
+
 class ChatRequest(BaseModel):
     book: str
     message: str
@@ -433,6 +457,8 @@ async def chat_endpoint(request: ChatRequest):
 
     tokens_used = 0
 
+    is_overview = is_overview_query(query)
+
     # Mode 1: Native Gemini RAG
     if retriever_mode == "gemini" and GEMINI_KEY:
         try:
@@ -442,9 +468,22 @@ async def chat_endpoint(request: ChatRequest):
             llm = ChatGoogleGenerativeAI(model=gemini_model, google_api_key=GEMINI_KEY, temperature=temperature)
             
             docs = active_retriever.invoke(query)
-            context_str = "\n---\n".join([d.page_content for d in docs[:4]])
             
-            formatted_prompt = prompt_tmpl.format(context=context_str, question=query)
+            if is_overview:
+                context_str = ""
+                formatted_prompt = f"""You are the scholarly Bible Study Chatbot for "Vachan Study".
+Please provide a comprehensive, scholarly, and structured overview of the Bible book "{book_code}".
+Your overview should cover:
+1. Historical Background & Context
+2. Key Theological Themes & Purpose
+3. Main Literary Structure & Outline
+
+Make sure your response is scholarly, detailed, and formatted beautifully in markdown. At the end of your response, you MUST state: "Note: This response comes from my general knowledge database."
+"""
+            else:
+                context_str = "\n---\n".join([d.page_content for d in docs[:4]])
+                formatted_prompt = prompt_tmpl.format(context=context_str, question=query)
+                
             llm_result = llm.invoke(formatted_prompt)
             answer = llm_result.content.strip()
             
@@ -458,9 +497,9 @@ async def chat_endpoint(request: ChatRequest):
                     answer = answer.replace(d, "").strip()
             
             # Determine if fallback to general knowledge was triggered
-            is_general_knowledge = "general knowledge" in answer.lower()
+            is_general_knowledge = is_overview or "general knowledge" in answer.lower()
                 
-            top_ref = docs[0].metadata.get("reference", "1:1")
+            top_ref = docs[0].metadata.get("reference", "1:1") if not is_overview else "1:1"
             
             excluded_set = {normalize_text(q) for q in (request.history or []) + [query]}
             suggested = []
@@ -531,9 +570,22 @@ async def chat_endpoint(request: ChatRequest):
             llm = ChatOpenAI(model=model_name, temperature=temperature, openai_api_key=OPENAI_KEY)
             
             docs = active_retriever.invoke(query)
-            context_str = "\n---\n".join([d.page_content for d in docs[:4]])
             
-            formatted_prompt = prompt_tmpl.format(context=context_str, question=query)
+            if is_overview:
+                context_str = ""
+                formatted_prompt = f"""You are the scholarly Bible Study Chatbot for "Vachan Study".
+Please provide a comprehensive, scholarly, and structured overview of the Bible book "{book_code}".
+Your overview should cover:
+1. Historical Background & Context
+2. Key Theological Themes & Purpose
+3. Main Literary Structure & Outline
+
+Make sure your response is scholarly, detailed, and formatted beautifully in markdown. At the end of your response, you MUST state: "Note: This response comes from my general knowledge database."
+"""
+            else:
+                context_str = "\n---\n".join([d.page_content for d in docs[:4]])
+                formatted_prompt = prompt_tmpl.format(context=context_str, question=query)
+                
             llm_result = llm.invoke(formatted_prompt)
             answer = llm_result.content.strip()
             
@@ -547,9 +599,9 @@ async def chat_endpoint(request: ChatRequest):
                     answer = answer.replace(d, "").strip()
             
             # Determine if fallback to general knowledge was triggered
-            is_general_knowledge = "general knowledge" in answer.lower()
+            is_general_knowledge = is_overview or "general knowledge" in answer.lower()
                 
-            top_ref = docs[0].metadata.get("reference", "1:1")
+            top_ref = docs[0].metadata.get("reference", "1:1") if not is_overview else "1:1"
             
             excluded_set = {normalize_text(q) for q in (request.history or []) + [query]}
             suggested = []
@@ -613,17 +665,24 @@ async def chat_endpoint(request: ChatRequest):
 
     # Mode 3: Offline Semantic Overlap (Zero LLM, Zero Cost)
     docs = active_retriever.retrieve(query, k=10)
-    top_doc = docs[0]
-    answer = top_doc.metadata["response"]
     
-    # Mode 3 is purely retrieved directly from the offline unfoldingWord CSV database
-    # Strip any accidental disclaimers from database response
-    for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
-        if d in answer:
-            answer = answer.replace(d, "").strip()
+    if is_overview and book_code in OFFLINE_OVERVIEWS:
+        answer = OFFLINE_OVERVIEWS[book_code]
+        top_ref = "1:1"
+        is_general_knowledge = True
+    else:
+        top_doc = docs[0]
+        answer = top_doc.metadata["response"]
         
-    top_ref = top_doc.metadata["reference"]
-    
+        # Mode 3 is purely retrieved directly from the offline unfoldingWord CSV database
+        # Strip any accidental disclaimers from database response
+        for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
+            if d in answer:
+                answer = answer.replace(d, "").strip()
+            
+        top_ref = top_doc.metadata["reference"]
+        is_general_knowledge = False
+        
     excluded_set = {normalize_text(q) for q in (request.history or []) + [query]}
     suggested = []
     for doc in docs[1:]:
@@ -653,13 +712,80 @@ async def chat_endpoint(request: ChatRequest):
         answer=answer,
         reference=top_ref,
         suggested_questions=suggested[:3],
-        is_general_knowledge=False,
+        is_general_knowledge=is_general_knowledge,
         tokens_used=0,
         total_tokens_used=stats["total_tokens_used"],
         pending_tokens=stats["pending_tokens"],
         requests_today=stats["requests_today"],
         requests_this_minute=stats["requests_this_minute"]
     )
+
+
+class QARecord(BaseModel):
+    Reference: str
+    Question: str
+    Response: str
+
+class BookDatasetResponse(BaseModel):
+    book: str
+    total_questions: int
+    data: List[QARecord]
+
+@app.get("/api/dataset/{book}", response_model=BookDatasetResponse)
+async def get_book_dataset(book: str):
+    book_code = normalize_book_code(book).upper()
+    
+    # Check paths: 1. data/en_tq/tq_{book}.tsv, 2. static_data/tq_{book}.csv, 3. static_data/tq_MAT.csv
+    tsv_filename = f"tq_{book_code}.tsv"
+    tsv_path = os.path.join(DATA_DIR, "en_tq", tsv_filename)
+    
+    if not os.path.exists(tsv_path):
+        # Look in static_data for book csv
+        csv_filename = f"tq_{book_code}.csv"
+        csv_path = os.path.join(STATIC_DATA_DIR, csv_filename)
+        if os.path.exists(csv_path):
+            tsv_path = csv_path
+        else:
+            # Fall back to Matthew
+            tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
+            
+    if not os.path.exists(tsv_path):
+        raise HTTPException(status_code=404, detail=f"No dataset found for book {book_code}")
+        
+    try:
+        is_tsv = tsv_path.endswith('.tsv')
+        df = pd.read_csv(tsv_path, sep='\t' if is_tsv else ',')
+        
+        # Normalize columns
+        df.rename(columns={
+            'reference': 'Reference',
+            'Reference': 'Reference',
+            'question': 'Question',
+            'Question': 'Question',
+            'response': 'Response',
+            'Response': 'Response'
+        }, inplace=True, errors='ignore')
+        
+        df.columns = df.columns.str.strip()
+        df['Reference'] = df['Reference'].fillna('1:1').astype(str)
+        df['Question'] = df['Question'].fillna('').astype(str)
+        df['Response'] = df['Response'].fillna('').astype(str)
+        
+        records = []
+        for _, row in df.iterrows():
+            records.append({
+                "Reference": str(row["Reference"]),
+                "Question": str(row["Question"]),
+                "Response": str(row["Response"])
+            })
+            
+        return BookDatasetResponse(
+            book=book_code,
+            total_questions=len(records),
+            data=records
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read dataset: {str(e)}")
 
 
 class TokenStatusResponse(BaseModel):
