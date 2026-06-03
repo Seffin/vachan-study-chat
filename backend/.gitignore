@@ -15,7 +15,8 @@ env/
 .env.example
 
 # Vector databases
-static_data/vectorstores/
+# static_data/vectorstores/
 
 # Dynamic Q&A data sources
-data/
+# data/
+
