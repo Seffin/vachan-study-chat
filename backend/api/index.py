@@ -85,7 +85,7 @@ class SemanticRetriever:
             }
             self.docs.append(Document(page_content, metadata))
 
-    def retrieve(self, query: str, k: int = 10) -> List[Document]:
+    def retrieve_with_scores(self, query: str, k: int = 10):
         query_words = set(query.lower().split())
         scored_docs = []
         
@@ -97,11 +97,20 @@ class SemanticRetriever:
             q_words = set(doc.metadata["question"].lower().split())
             overlap += len(query_words.intersection(q_words)) * 2
             
-            scored_docs.append((overlap, doc))
+            # Massive boost for exact substring matches to ensure Tier 1 catches it
+            norm_q = re.sub(r'[^a-z0-9]', '', doc.metadata["question"].lower())
+            norm_query = re.sub(r'[^a-z0-9]', '', query.lower())
+            if norm_query and norm_q and (norm_query == norm_q or norm_query in norm_q or norm_q in norm_query):
+                overlap += 1000
             
-        # Sort by overlap score descending
-        scored_docs.sort(key=lambda x: x[0], reverse=True)
-        return [doc for _, doc in scored_docs[:k]]
+            scored_docs.append((doc, overlap))
+            
+        # Sort by overlap score descending (higher is better for semantic retriever)
+        scored_docs.sort(key=lambda x: x[1], reverse=True)
+        return scored_docs[:k]
+
+    def retrieve(self, query: str, k: int = 10) -> List[Document]:
+        return [doc for doc, _ in self.retrieve_with_scores(query, k)]
 
     def invoke(self, query: str) -> List[Document]:
         return self.retrieve(query, k=10)
@@ -458,122 +467,101 @@ async def chat_endpoint(request: ChatRequest):
     tokens_used = 0
 
     is_overview = is_overview_query(query)
+    stats = load_tokens_data()
 
-    # Mode 1: Native Gemini RAG
-    if retriever_mode == "gemini" and GEMINI_KEY:
+    # Pre-fetch docs and scores from retriever
+    if hasattr(active_retriever, "vectorstore"):
         try:
+            docs_and_scores = active_retriever.vectorstore.similarity_search_with_score(query, k=10)
+        except Exception as e:
+            print(f"Error fetching FAISS scores: {e}. Falling back to standard retrieve.")
+            docs_and_scores = [(d, 0.0) for d in active_retriever.invoke(query)]
+    elif hasattr(active_retriever, "retrieve_with_scores"):
+        docs_and_scores = active_retriever.retrieve_with_scores(query, k=10)
+    else:
+        docs_and_scores = [(d, 0.0) for d in active_retriever.invoke(query)]
+
+    docs = [d for d, s in docs_and_scores]
+    if not docs:
+        # Fallback empty doc
+        docs = [Document("No content", {"reference": "1:1", "question": "", "response": ""})]
+
+    norm_query = normalize_text(query)
+    
+    tier_matched = 0
+    answer = ""
+    top_ref = docs[0].metadata.get("reference", "1:1") if not is_overview else "1:1"
+    is_general_knowledge = False
+    
+    # Check Tier 1: Exact Match across all retrieved docs
+    if not is_overview and docs_and_scores:
+        for doc, score in docs_and_scores:
+            doc_q = normalize_text(doc.metadata.get("question", ""))
+            if norm_query and doc_q and (norm_query == doc_q or norm_query in doc_q or doc_q in norm_query):
+                answer = doc.metadata.get("response", "") + "\n\n📖 Source: UnfoldingWord Dataset"
+                top_ref = doc.metadata.get("reference", "1:1")
+                tier_matched = 1
+                print(f"Tier 1 Exact Match: '{doc.metadata.get('question')}' (Score={score})")
+                break
+                
+        # Tier 2: Semantic Match (if Tier 1 didn't match)
+        if tier_matched == 0:
+            top_doc, top_score = docs_and_scores[0]
+            is_semantic_match = False
+            if hasattr(active_retriever, "vectorstore") and top_score < 0.4:
+                is_semantic_match = True
+            elif hasattr(active_retriever, "retrieve_with_scores") and top_score > 6: # Require higher overlap for semantic fallback
+                is_semantic_match = True
+                
+            if is_semantic_match:
+                answer = top_doc.metadata.get("response", "") + "\n\n📖 Source: UnfoldingWord Dataset (similar question matched)"
+                top_ref = top_doc.metadata.get("reference", "1:1")
+                tier_matched = 2
+                print(f"Tier 2 Semantic Match: Score={top_score}")
+
+    if tier_matched > 0 or retriever_mode == "semantic":
+        # Mode 3 or matched Tier 1/2
+        if is_overview and book_code in OFFLINE_OVERVIEWS:
+            answer = OFFLINE_OVERVIEWS[book_code]
+            top_ref = "1:1"
+            is_general_knowledge = True
+        elif tier_matched == 0 and retriever_mode == "semantic":
+            # Semantic fallback if no tier matched but we only have semantic mode
+            top_doc = docs[0]
+            answer = top_doc.metadata.get("response", "")
+            top_ref = top_doc.metadata.get("reference", "1:1")
+            is_general_knowledge = False
+            
+        # Strip preexisting disclaimers from the DB response
+        for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
+            if d in answer:
+                answer = answer.replace(d, "").strip()
+                
+        # Append warnings
+        if rate_limited:
+            answer += f"\n\n*⚠️ Warning: {limit_msg} Served offline response.*"
+        elif tokens_data["pending_tokens"] <= 0:
+            answer += "\n\n*⚠️ Warning: Token quota completely exhausted (0 pending tokens left). Served offline response.*"
+
+    else:
+        # Tier 3: AI Generation (Mode 1 & 2)
+        llm = None
+        if retriever_mode == "gemini" and GEMINI_KEY:
             from langchain_google_genai import ChatGoogleGenerativeAI
             gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
             temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.1"))
             llm = ChatGoogleGenerativeAI(model=gemini_model, google_api_key=GEMINI_KEY, temperature=temperature)
-            
-            docs = active_retriever.invoke(query)
-            
-            if is_overview:
-                context_str = ""
-                formatted_prompt = f"""You are the scholarly Bible Study Chatbot for "Vachan Study".
-Please provide a comprehensive, scholarly, and structured overview of the Bible book "{book_code}".
-Your overview should cover:
-1. Historical Background & Context
-2. Key Theological Themes & Purpose
-3. Main Literary Structure & Outline
-
-Make sure your response is scholarly, detailed, and formatted beautifully in markdown. At the end of your response, you MUST state: "Note: This response comes from my general knowledge database."
-"""
-            else:
-                context_str = "\n---\n".join([d.page_content for d in docs[:4]])
-                formatted_prompt = prompt_tmpl.format(context=context_str, question=query)
-                
-            llm_result = llm.invoke(formatted_prompt)
-            answer = llm_result.content.strip()
-            
-            # Extract token usage
-            usage = extract_token_usage(llm_result, formatted_prompt)
-            tokens_used = usage["total"]
-            
-            # Clean any pre-existing disclaimers to prevent duplicates in text response
-            for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
-                if d in answer:
-                    answer = answer.replace(d, "").strip()
-            
-            # Determine if fallback to general knowledge was triggered
-            is_general_knowledge = is_overview or "general knowledge" in answer.lower()
-                
-            top_ref = docs[0].metadata.get("reference", "1:1") if not is_overview else "1:1"
-            
-            excluded_set = {normalize_text(q) for q in (request.history or []) + [query]}
-            suggested = []
-            for doc in docs[1:]:
-                q = doc.metadata.get("question")
-                if q:
-                    norm_q = normalize_text(q)
-                    if norm_q not in excluded_set and q not in suggested:
-                        suggested.append(q)
-            
-            defaults = ["What does the text teach?", "Explain the passage further", "What are the key themes?"]
-            for d in defaults:
-                if len(suggested) >= 3:
-                    break
-                if normalize_text(d) not in excluded_set and d not in suggested:
-                    suggested.append(d)
-                
-            # Update rates and quotas
-            stats = check_and_update_rate_limits()
-            stats["total_tokens_used"] += tokens_used
-            stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
-            save_tokens_data(stats)
-            
-            return ChatResponse(
-                answer=answer,
-                reference=top_ref,
-                suggested_questions=suggested[:3],
-                is_general_knowledge=is_general_knowledge,
-                tokens_used=tokens_used,
-                total_tokens_used=stats["total_tokens_used"],
-                pending_tokens=stats["pending_tokens"],
-                requests_today=stats["requests_today"],
-                requests_this_minute=stats["requests_this_minute"]
-            )
-        except Exception as err:
-            print(f"RAG Gemini Pipeline Runtime Error: {err}. Falling back to offline semantic overlap.")
-            retriever_mode = "semantic"
-            # Force fallback fetch of the book's TSV or the global fallback CSV
-            tsv_filename = f"tq_{book_code}.tsv"
-            tsv_path = os.path.join(DATA_DIR, "en_tq", tsv_filename)
-            if not os.path.exists(tsv_path):
-                csv_filename = f"tq_{book_code}.csv"
-                csv_path = os.path.join(STATIC_DATA_DIR, csv_filename)
-                if os.path.exists(csv_path):
-                    tsv_path = csv_path
-                else:
-                    tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
-            try:
-                is_tsv = tsv_path.endswith('.tsv')
-                df = pd.read_csv(tsv_path, sep='\t' if is_tsv else ',')
-                df.rename(columns={'reference': 'Reference', 'Reference': 'Reference', 'question': 'Question', 'Question': 'Question', 'response': 'Response', 'Response': 'Response'}, inplace=True, errors='ignore')
-                df.columns = df.columns.str.strip()
-                df['Reference'] = df['Reference'].fillna('1:1').astype(str)
-                df['Question'] = df['Question'].fillna('').astype(str)
-                df['Response'] = df['Response'].fillna('').astype(str)
-                active_retriever = SemanticRetriever(df)
-            except Exception as inner_err:
-                print(f"Fallback Semantic Retriever failed ({inner_err}). Using empty emergency fallback.")
-                dummy_df = pd.DataFrame([{"Reference": "1:1", "Question": "What is the study book?", "Response": "Welcome to Vachan Study Bible Study Chatbot."}])
-                active_retriever = SemanticRetriever(dummy_df)
-
-    # Mode 2: Alternative OpenAI RAG
-    if retriever_mode == "openai" and OPENAI_KEY:
-        try:
+        elif retriever_mode == "openai" and OPENAI_KEY:
             from langchain_openai import ChatOpenAI
             model_name = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
             temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.1"))
             llm = ChatOpenAI(model=model_name, temperature=temperature, openai_api_key=OPENAI_KEY)
             
-            docs = active_retriever.invoke(query)
-            
-            if is_overview:
-                context_str = ""
-                formatted_prompt = f"""You are the scholarly Bible Study Chatbot for "Vachan Study".
+        if llm:
+            try:
+                if is_overview:
+                    context_str = ""
+                    formatted_prompt = f"""You are the scholarly Bible Study Chatbot for "Vachan Study".
 Please provide a comprehensive, scholarly, and structured overview of the Bible book "{book_code}".
 Your overview should cover:
 1. Historical Background & Context
@@ -582,111 +570,44 @@ Your overview should cover:
 
 Make sure your response is scholarly, detailed, and formatted beautifully in markdown. At the end of your response, you MUST state: "Note: This response comes from my general knowledge database."
 """
-            else:
-                context_str = "\n---\n".join([d.page_content for d in docs[:4]])
-                formatted_prompt = prompt_tmpl.format(context=context_str, question=query)
-                
-            llm_result = llm.invoke(formatted_prompt)
-            answer = llm_result.content.strip()
-            
-            # Extract token usage
-            usage = extract_token_usage(llm_result, formatted_prompt)
-            tokens_used = usage["total"]
-            
-            # Clean any pre-existing disclaimers to prevent duplicates in text response
-            for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
-                if d in answer:
-                    answer = answer.replace(d, "").strip()
-            
-            # Determine if fallback to general knowledge was triggered
-            is_general_knowledge = is_overview or "general knowledge" in answer.lower()
-                
-            top_ref = docs[0].metadata.get("reference", "1:1") if not is_overview else "1:1"
-            
-            excluded_set = {normalize_text(q) for q in (request.history or []) + [query]}
-            suggested = []
-            for doc in docs[1:]:
-                q = doc.metadata.get("question")
-                if q:
-                    norm_q = normalize_text(q)
-                    if norm_q not in excluded_set and q not in suggested:
-                        suggested.append(q)
-            
-            defaults = ["What does the text teach?", "Explain the passage further", "What are the key themes?"]
-            for d in defaults:
-                if len(suggested) >= 3:
-                    break
-                if normalize_text(d) not in excluded_set and d not in suggested:
-                    suggested.append(d)
-                
-            # Update rates and quotas
-            stats = check_and_update_rate_limits()
-            stats["total_tokens_used"] += tokens_used
-            stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
-            save_tokens_data(stats)
-            
-            return ChatResponse(
-                answer=answer,
-                reference=top_ref,
-                suggested_questions=suggested[:3],
-                is_general_knowledge=is_general_knowledge,
-                tokens_used=tokens_used,
-                total_tokens_used=stats["total_tokens_used"],
-                pending_tokens=stats["pending_tokens"],
-                requests_today=stats["requests_today"],
-                requests_this_minute=stats["requests_this_minute"]
-            )
-        except Exception as err:
-            print(f"RAG OpenAI Pipeline Runtime Error: {err}. Falling back to offline semantic overlap.")
-            retriever_mode = "semantic"
-            # Force fallback fetch of the book's TSV or the global fallback CSV
-            tsv_filename = f"tq_{book_code}.tsv"
-            tsv_path = os.path.join(DATA_DIR, "en_tq", tsv_filename)
-            if not os.path.exists(tsv_path):
-                csv_filename = f"tq_{book_code}.csv"
-                csv_path = os.path.join(STATIC_DATA_DIR, csv_filename)
-                if os.path.exists(csv_path):
-                    tsv_path = csv_path
                 else:
-                    tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
-            try:
-                is_tsv = tsv_path.endswith('.tsv')
-                df = pd.read_csv(tsv_path, sep='\t' if is_tsv else ',')
-                df.rename(columns={'reference': 'Reference', 'Reference': 'Reference', 'question': 'Question', 'Question': 'Question', 'response': 'Response', 'Response': 'Response'}, inplace=True, errors='ignore')
-                df.columns = df.columns.str.strip()
-                df['Reference'] = df['Reference'].fillna('1:1').astype(str)
-                df['Question'] = df['Question'].fillna('').astype(str)
-                df['Response'] = df['Response'].fillna('').astype(str)
-                active_retriever = SemanticRetriever(df)
-            except Exception as inner_err:
-                print(f"Fallback Semantic Retriever failed ({inner_err}). Using empty emergency fallback.")
-                dummy_df = pd.DataFrame([{"Reference": "1:1", "Question": "What is the study book?", "Response": "Welcome to Vachan Study Bible Study Chatbot."}])
-                active_retriever = SemanticRetriever(dummy_df)
-
-    # Mode 3: Offline Semantic Overlap (Zero LLM, Zero Cost)
-    docs = active_retriever.retrieve(query, k=10)
-    
-    if is_overview and book_code in OFFLINE_OVERVIEWS:
-        answer = OFFLINE_OVERVIEWS[book_code]
-        top_ref = "1:1"
-        is_general_knowledge = True
-    else:
-        top_doc = docs[0]
-        answer = top_doc.metadata["response"]
-        
-        # Mode 3 is purely retrieved directly from the offline unfoldingWord CSV database
-        # Strip any accidental disclaimers from database response
-        for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
-            if d in answer:
-                answer = answer.replace(d, "").strip()
-            
-        top_ref = top_doc.metadata["reference"]
-        is_general_knowledge = False
-        
+                    context_str = "\n---\n".join([d.page_content for d in docs[:4]])
+                    formatted_prompt = prompt_tmpl.format(context=context_str, question=query)
+                    
+                llm_result = llm.invoke(formatted_prompt)
+                answer = llm_result.content.strip()
+                
+                # Extract token usage
+                usage = extract_token_usage(llm_result, formatted_prompt)
+                tokens_used = usage["total"]
+                
+                # Clean disclaimers
+                for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
+                    if d in answer:
+                        answer = answer.replace(d, "").strip()
+                
+                # Add AI Generated disclaimer
+                answer += "\n\n🤖 AI Generated — This answer was not found in the dataset and was generated by AI"
+                
+                is_general_knowledge = is_overview or "general knowledge" in answer.lower()
+                top_ref = docs[0].metadata.get("reference", "1:1") if not is_overview else "1:1"
+                
+                stats = check_and_update_rate_limits()
+                stats["total_tokens_used"] += tokens_used
+                stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
+                save_tokens_data(stats)
+            except Exception as err:
+                print(f"RAG Pipeline Runtime Error: {err}. Falling back to offline response.")
+                top_doc = docs[0]
+                answer = top_doc.metadata.get("response", "") + "\n\n*⚠️ Warning: AI generation failed. Served best offline response.*"
+                top_ref = top_doc.metadata.get("reference", "1:1")
+                stats = load_tokens_data()
+                
+    # Shared Related Questions Logic (All tiers)
     excluded_set = {normalize_text(q) for q in (request.history or []) + [query]}
     suggested = []
-    for doc in docs[1:]:
-        q = doc.metadata["question"]
+    for doc in docs:
+        q = doc.metadata.get("question")
         if q:
             norm_q = normalize_text(q)
             if norm_q not in excluded_set and q not in suggested:
@@ -699,25 +620,16 @@ Make sure your response is scholarly, detailed, and formatted beautifully in mar
         if normalize_text(d) not in excluded_set and d not in suggested:
             suggested.append(d)
 
-    # Append warning message if they were rate-limited or out of tokens
-    if rate_limited:
-        answer += f"\n\n*⚠️ Warning: {limit_msg} Served offline response.*"
-    elif tokens_data["pending_tokens"] <= 0:
-        answer += "\n\n*⚠️ Warning: Token quota completely exhausted (0 pending tokens left). Served offline response.*"
-
-    # Just read tokens data without increasing count (zero-cost)
-    stats = load_tokens_data()
-
     return ChatResponse(
         answer=answer,
         reference=top_ref,
         suggested_questions=suggested[:3],
         is_general_knowledge=is_general_knowledge,
-        tokens_used=0,
-        total_tokens_used=stats["total_tokens_used"],
-        pending_tokens=stats["pending_tokens"],
-        requests_today=stats["requests_today"],
-        requests_this_minute=stats["requests_this_minute"]
+        tokens_used=tokens_used,
+        total_tokens_used=stats.get("total_tokens_used", 0),
+        pending_tokens=stats.get("pending_tokens", 0),
+        requests_today=stats.get("requests_today", 0),
+        requests_this_minute=stats.get("requests_this_minute", 0)
     )
 
 
