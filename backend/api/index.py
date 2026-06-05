@@ -511,7 +511,7 @@ async def chat_endpoint(request: ChatRequest):
     
     answer = ""
     top_ref = "1:1"
-    source = "ai_fallback"
+    source = "ai_general"
     is_general_knowledge = False
     docs = []
 
@@ -617,7 +617,7 @@ async def chat_endpoint(request: ChatRequest):
                             
                         response = model.generate_content(formatted_prompt)
                         answer = response.text.strip()
-                        source = "ai_fallback"
+                        source = "ai_general"
                         is_general_knowledge = True
                         
                         # Approximate tokens
@@ -638,7 +638,7 @@ async def chat_endpoint(request: ChatRequest):
                                 
                             llm_result = llm.invoke(formatted_prompt)
                             answer = llm_result.content.strip()
-                            source = "ai_fallback"
+                            source = "ai_general"
                             is_general_knowledge = True
                             
                             usage = extract_token_usage(llm_result, formatted_prompt)
@@ -649,7 +649,7 @@ async def chat_endpoint(request: ChatRequest):
                                 answer = docs_and_scores[0][0].metadata.get("response", "")
                                 source = "dataset_native"
 
-    # Clean up disclaimers
+    # Clean up disclaimers so they do not duplicate in bubble text
     for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "⚠️ *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
         if d in answer:
             answer = answer.replace(d, "").strip()
@@ -976,3 +976,5 @@ if __name__ == "__main__":
     reload_flag = os.environ.get("RELOAD", "True").lower() == "true"
     print(f"RAG Server: Starting Uvicorn on {host}:{port} (reload={reload_flag})...")
     uvicorn.run("api.index:app", host=host, port=port, reload=reload_flag)
+
+

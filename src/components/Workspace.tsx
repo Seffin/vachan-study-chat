@@ -41,7 +41,7 @@ interface Message {
   versesHighlighted?: string[];
   isCustom?: boolean;
   isGeneralKnowledge?: boolean;
-  source?: "dataset" | "ai" | "dataset_native" | "translated_from_en" | "ai_fallback";
+  source?: "dataset_native" | "translated_from_en" | "ai_general";
 }
 
 // Helper to translate full book names into standard 3-letter USFM codes
@@ -390,7 +390,7 @@ export default function Workspace({
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         versesHighlighted: data.reference ? [data.reference.split(":")[1]] : [],
         isGeneralKnowledge: data.is_general_knowledge || false,
-        source: data.source as "dataset" | "ai" | "dataset_native" | "translated_from_en" | "ai_fallback"
+        source: data.source as "dataset_native" | "translated_from_en" | "ai_general"
       };
       setMessages(prev => [...prev, newAIMessage]);
 
@@ -741,18 +741,18 @@ export default function Workspace({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 pl-1 mt-0.5">
+                <div className="flex items-center gap-3 pl-1 mt-1">
                   <span className="text-[10px] text-zinc-400 dark:text-zinc-500 whitespace-nowrap shrink-0">
                     {message.timestamp}
                   </span>
-                  {(message.source === "ai" || message.source === "ai_fallback") && (
-                    <div className="text-xs text-amber-600 mt-1 ml-1 flex items-center gap-1"><span>⚠️</span> AI-generated fallback response</div>
-                  )}
-                  {(message.source === "dataset" || message.source === "dataset_native") && (
-                    <div className="text-xs text-green-600 mt-1 ml-1 flex items-center gap-1"><span>✅</span> Retrieved from dataset</div>
+                  {message.source === "dataset_native" && (
+                    <div className="text-[11px] font-medium text-green-600 dark:text-green-500 flex items-center gap-1"><span>✅</span> Retrieval from native dataset</div>
                   )}
                   {message.source === "translated_from_en" && (
-                    <div className="text-xs text-blue-600 mt-1 ml-1 flex items-center gap-1"><span>🌐</span> Translated from English dataset</div>
+                    <div className="text-[11px] font-medium text-amber-600 dark:text-amber-500 flex items-center gap-1"><span>⚠️</span> AI translated from English source</div>
+                  )}
+                  {message.source === "ai_general" && (
+                    <div className="text-[11px] font-medium text-amber-600 dark:text-amber-500 flex items-center gap-1"><span>⚠️</span> General AI-generated response</div>
                   )}
                 </div>
               </motion.div>
