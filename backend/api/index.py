@@ -12,6 +12,29 @@ from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+try:
+    from langdetect import detect
+except ImportError:
+    def detect(text): return 'en'
+
+LANGUAGE_MAP = {
+    'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German', 'zh-cn': 'Chinese (Simplified)',
+    'zh-tw': 'Chinese (Traditional)', 'hi': 'Hindi', 'ar': 'Arabic', 'ru': 'Russian', 'pt': 'Portuguese',
+    'ja': 'Japanese', 'ko': 'Korean', 'it': 'Italian', 'nl': 'Dutch', 'tr': 'Turkish',
+    'pl': 'Polish', 'vi': 'Vietnamese', 'ml': 'Malayalam', 'ta': 'Tamil', 'te': 'Telugu',
+    'kn': 'Kannada', 'bn': 'Bengali', 'ur': 'Urdu', 'gu': 'Gujarati', 'mr': 'Marathi'
+}
+
+def detect_user_language(message: str) -> tuple[str, str]:
+    try:
+        lang_code = detect(message)
+    except:
+        lang_code = 'en'
+    lang_name = LANGUAGE_MAP.get(lang_code, "English")
+    if lang_code not in LANGUAGE_MAP:
+        lang_name = f"ISO-{lang_code} language"
+    return lang_code, lang_name
 from dotenv import load_dotenv
 
 # Load environment configurations
@@ -118,9 +141,10 @@ class SemanticRetriever:
 # LangChain prompt template
 from langchain_core.prompts import PromptTemplate
 prompt_tmpl = PromptTemplate(
-    input_variables=["context", "question"],
+    input_variables=["context", "question", "user_language"],
     template="""You are the scholarly Bible Study Chatbot for "Vachan Study".
-First, attempt to answer the question using ONLY the provided Context.
+Please answer the following question strictly IN {user_language}.
+Attempt to answer the question using ONLY the provided Context.
 If the provided Context does not contain the answer, use your general AI knowledge to answer the question, but you MUST explicitly mention in your response that the answer comes from general knowledge rather than the specific study text.
 
 Context:
@@ -128,18 +152,19 @@ Context:
 
 Question: {question}
 
-Answer naturally.
+Answer naturally IN {user_language}.
 """
 )
 
 # Dynamic cache for retrievers: {book_code: (retriever_mode, retriever_instance)}
 retrievers: Dict[str, tuple] = {}
 
-def get_retriever_for_book(book_code: str) -> tuple:
+def get_retriever_for_book(book_code: str, lang_code: str = "en") -> tuple:
     """Loads the book pre-compiled FAISS index or TSV fallback, constructs the retriever, and caches it."""
     book_code = book_code.upper().strip()
-    if book_code in retrievers:
-        return retrievers[book_code]
+    cache_key = f"{book_code}_{lang_code}"
+    if cache_key in retrievers:
+        return retrievers[cache_key]
 
     # Resolve active LLM provider mode
     active_provider = None
@@ -171,14 +196,16 @@ def get_retriever_for_book(book_code: str) -> tuple:
     if active_provider and embeddings and index_subdir:
         try:
             from langchain_community.vectorstores import FAISS
-            index_path = os.path.join(STATIC_DATA_DIR, "vectorstores", index_subdir, book_code)
+            index_path = os.path.join(STATIC_DATA_DIR, "vectorstores", f"{lang_code}_{index_subdir}", book_code)
+            if not os.path.exists(index_path):
+                index_path = os.path.join(STATIC_DATA_DIR, "vectorstores", index_subdir, book_code)
             
             if os.path.exists(index_path) and os.path.exists(os.path.join(index_path, "index.faiss")):
                 print(f"RAG System: Persistent FAISS Index ({active_provider}) found for '{book_code}' at {index_path}. Loading...")
                 vectorstore = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
                 book_retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
-                retrievers[book_code] = (active_provider, book_retriever)
-                return retrievers[book_code]
+                retrievers[cache_key] = (active_provider, book_retriever)
+                return retrievers[cache_key]
             else:
                 print(f"RAG System: Pre-compiled FAISS index not found for '{book_code}' under static_data. Falling back...")
         except Exception as e:
@@ -189,23 +216,24 @@ def get_retriever_for_book(book_code: str) -> tuple:
     
     # Check paths: 1. data/en_tq/tq_{book}.tsv, 2. static_data/tq_{book}.csv, 3. static_data/tq_MAT.csv
     tsv_filename = f"tq_{book_code}.tsv"
-    tsv_path = os.path.join(DATA_DIR, "en_tq", tsv_filename)
+    tsv_path = os.path.join(DATA_DIR, f"{lang_code}_tq", tsv_filename)
     
     if not os.path.exists(tsv_path):
-        # Look in static_data for book csv
-        csv_filename = f"tq_{book_code}.csv"
-        csv_path = os.path.join(STATIC_DATA_DIR, csv_filename)
-        if os.path.exists(csv_path):
-            tsv_path = csv_path
-        else:
-            # Fall back to Matthew
-            tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
-            if not os.path.exists(tsv_path):
-                # Emergency dynamic generation of MAT csv
-                print("[RAG WARNING] Fallback dataset missing in static_data. Generating emergency bootstrap...")
-                from scripts.build_vector_db import bootstrap_data
-                bootstrap_data()
+        if lang_code == "en":
+            # Look in static_data for book csv
+            csv_filename = f"tq_{book_code}.csv"
+            csv_path = os.path.join(STATIC_DATA_DIR, csv_filename)
+            if os.path.exists(csv_path):
+                tsv_path = csv_path
+            else:
+                # Fall back to Matthew
                 tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
+                if not os.path.exists(tsv_path):
+                    from scripts.build_vector_db import bootstrap_data
+                    bootstrap_data()
+                    tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
+        else:
+            return "not_found", None
 
     try:
         is_tsv = tsv_path.endswith('.tsv')
@@ -231,9 +259,9 @@ def get_retriever_for_book(book_code: str) -> tuple:
                 })
         
         book_retriever = SemanticRetriever(records)
-        retrievers[book_code] = (active_provider if active_provider else "semantic", book_retriever)
+        retrievers[cache_key] = (active_provider if active_provider else "semantic", book_retriever)
         print(f"RAG System: Offline Semantic Retriever cached for '{book_code}' (Inference Mode: {active_provider if active_provider else 'semantic'}).")
-        return retrievers[book_code]
+        return retrievers[cache_key]
     except Exception as e:
         print(f"RAG System: Failed to build offline semantic retriever for '{book_code}' ({e}). Returning emergency fallback.")
         # Hardcoded emergency fallback
@@ -243,8 +271,8 @@ def get_retriever_for_book(book_code: str) -> tuple:
             "Response": "Welcome to Vachan Study Bible Study Chatbot."
         }]
         book_retriever = SemanticRetriever(dummy_records)
-        retrievers[book_code] = (active_provider if active_provider else "semantic", book_retriever)
-        return retrievers[book_code]
+        retrievers[cache_key] = (active_provider if active_provider else "semantic", book_retriever)
+        return retrievers[cache_key]
 
 # =====================================================================
 # 📊 PERSISTENT TOKEN MONITORING & RATE-LIMITS (GEMINI FREE TIER)
@@ -448,171 +476,166 @@ class ChatResponse(BaseModel):
     requests_this_minute: int = 0
     source: Optional[str] = None
 
+def get_llm_instance(provider: str):
+    llm = None
+    if provider == "gemini" and GEMINI_KEY:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.1"))
+        llm = ChatGoogleGenerativeAI(model=gemini_model, google_api_key=GEMINI_KEY, temperature=temperature)
+    elif provider == "openai" and OPENAI_KEY:
+        from langchain_openai import ChatOpenAI
+        model_name = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.1"))
+        llm = ChatOpenAI(model=model_name, temperature=temperature, openai_api_key=OPENAI_KEY)
+    return llm
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    query = request.message.strip()
+    original_query = request.message.strip()
     book_code = request.book.upper().strip()
-    if not query:
+    if not original_query:
         raise HTTPException(status_code=400, detail="Query message cannot be empty.")
-    
-    print(f"API Chat Query: '{query}' for book '{book_code}'")
+        
+    print(f"API Chat Query: '{original_query}' for book '{book_code}'")
 
-    # 1. Load current tokens & rate limit state
+    lang_code, lang_name = detect_user_language(original_query)
+    print(f"Detected Language: {lang_name} ({lang_code})")
+
     rate_limited, limit_msg = is_rate_limited()
     tokens_data = load_tokens_data()
-    
-    # Resolve retriever for book (gives us the desired active_provider mode if API keys exist)
-    retriever_mode, active_retriever = get_retriever_for_book(book_code)
-    
-    # Overwrite provider mode if quota exhausted or rate limited
-    if tokens_data["pending_tokens"] <= 0 or rate_limited:
-        print("RAG System: Rate limit active or quota exhausted. Falling back to local offline semantic.")
-        retriever_mode = "semantic"
-
     tokens_used = 0
-
-    is_overview = is_overview_query(query)
     stats = load_tokens_data()
 
-    # Pre-fetch docs and scores from retriever
-    if hasattr(active_retriever, "vectorstore"):
-        try:
-            docs_and_scores = active_retriever.vectorstore.similarity_search_with_score(query, k=10)
-        except Exception as e:
-            print(f"Error fetching FAISS scores: {e}. Falling back to standard retrieve.")
-            docs_and_scores = [(d, 0.0) for d in active_retriever.invoke(query)]
-    elif hasattr(active_retriever, "retrieve_with_scores"):
-        docs_and_scores = active_retriever.retrieve_with_scores(query, k=10)
-    else:
-        docs_and_scores = [(d, 0.0) for d in active_retriever.invoke(query)]
-
-    docs = [d for d, s in docs_and_scores]
-    if not docs:
-        # Fallback empty doc
-        docs = [Document("No content", {"reference": "1:1", "question": "", "response": ""})]
-
-    norm_query = normalize_text(query)
+    is_overview = is_overview_query(original_query)
     
-    tier_matched = 0
     answer = ""
-    top_ref = docs[0].metadata.get("reference", "1:1") if not is_overview else "1:1"
+    top_ref = "1:1"
+    source = "ai_fallback"
     is_general_knowledge = False
-    source = "ai" # Default to AI
+    docs = []
 
+    active_provider = "openai" if OPENAI_KEY else "gemini" if GEMINI_KEY else "semantic"
+
+    def get_docs(query, lang):
+        rmode, retriever = get_retriever_for_book(book_code, lang_code=lang)
+        if not retriever:
+            return rmode, []
+        
+        if hasattr(retriever, "vectorstore"):
+            try:
+                ds = retriever.vectorstore.similarity_search_with_score(query, k=10)
+            except:
+                ds = [(d, 0.0) for d in retriever.invoke(query)]
+        elif hasattr(retriever, "retrieve_with_scores"):
+            ds = retriever.retrieve_with_scores(query, k=10)
+        else:
+            ds = [(d, 0.0) for d in retriever.invoke(query)]
+            
+        return rmode, ds
+
+    # --- Step 1: Native Retrieval ---
+    retriever_mode, docs_and_scores = get_docs(original_query, lang_code)
+    tier_matched = 0
+    norm_query = normalize_text(original_query)
     
-    # Check Tier 1: Exact Match across all retrieved docs
-    if not is_overview and docs_and_scores:
+    if retriever_mode != "not_found" and not is_overview and docs_and_scores:
         for doc, score in docs_and_scores:
             doc_q = normalize_text(doc.metadata.get("question", ""))
             if norm_query and doc_q and (norm_query == doc_q or norm_query in doc_q or doc_q in norm_query):
-                answer = doc.metadata.get("response", "") + "\n\n✅ Source: UnfoldingWord Dataset"
+                answer = doc.metadata.get("response", "")
                 top_ref = doc.metadata.get("reference", "1:1")
                 tier_matched = 1
-                print(f"Tier 1 Exact Match: '{doc.metadata.get('question')}' (Score={score})")
+                source = "dataset_native"
                 break
-                
-        # Tier 2: Semantic Match (if Tier 1 didn't match)
         if tier_matched == 0:
             top_doc, top_score = docs_and_scores[0]
             is_semantic_match = False
-            if hasattr(active_retriever, "vectorstore") and top_score < 0.4:
+            if retriever_mode == "semantic" and top_score > 6:
                 is_semantic_match = True
-            elif hasattr(active_retriever, "retrieve_with_scores") and top_score > 6: # Require higher overlap for semantic fallback
+            elif retriever_mode != "semantic" and top_score < 0.4:
                 is_semantic_match = True
                 
             if is_semantic_match:
-                answer = top_doc.metadata.get("response", "") + "\n\n✅ Source: UnfoldingWord Dataset (similar question matched)"
+                answer = top_doc.metadata.get("response", "")
                 top_ref = top_doc.metadata.get("reference", "1:1")
                 tier_matched = 2
-                print(f"Tier 2 Semantic Match: Score={top_score}")
-
-    if tier_matched > 0 or retriever_mode == "semantic":
-        source = "dataset"
-        # Mode 3 or matched Tier 1/2
-        if is_overview and book_code in OFFLINE_OVERVIEWS:
-            answer = OFFLINE_OVERVIEWS[book_code]
-            top_ref = "1:1"
-            is_general_knowledge = True
-        elif tier_matched == 0 and retriever_mode == "semantic":
-            # Semantic fallback if no tier matched but we only have semantic mode
-            top_doc = docs[0]
-            answer = top_doc.metadata.get("response", "")
-            top_ref = top_doc.metadata.get("reference", "1:1")
-            is_general_knowledge = False
-            
-        # Strip preexisting disclaimers from the DB response
-        for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
-            if d in answer:
-                answer = answer.replace(d, "").strip()
+                source = "dataset_native"
                 
-        # Append warnings
-        if rate_limited:
-            answer += f"\n\n*⚠️ Warning: {limit_msg} Served offline response.*"
-        elif tokens_data["pending_tokens"] <= 0:
-            answer += "\n\n*⚠️ Warning: Token quota completely exhausted (0 pending tokens left). Served offline response.*"
+        if tier_matched > 0:
+            docs = [d for d, s in docs_and_scores]
 
-    else:
-        # Tier 3: AI Generation (Mode 1 & 2)
-        llm = None
-        if retriever_mode == "gemini" and GEMINI_KEY:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-            temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.1"))
-            llm = ChatGoogleGenerativeAI(model=gemini_model, google_api_key=GEMINI_KEY, temperature=temperature)
-        elif retriever_mode == "openai" and OPENAI_KEY:
-            from langchain_openai import ChatOpenAI
-            model_name = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-            temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.1"))
-            llm = ChatOpenAI(model=model_name, temperature=temperature, openai_api_key=OPENAI_KEY)
-            
+    # --- Step 2: English Translation Fallback ---
+    if tier_matched == 0 and not is_overview and lang_code != "en" and not rate_limited and tokens_data["pending_tokens"] > 0:
+        print("Native dataset missed. Attempting English Translation Fallback...")
+        llm = get_llm_instance(active_provider)
         if llm:
             try:
-                if is_overview:
-                    context_str = ""
-                    formatted_prompt = f"""You are the scholarly Bible Study Chatbot for "Vachan Study".
-Please provide a comprehensive, scholarly, and structured overview of the Bible book "{book_code}".
-Your overview should cover:
-1. Historical Background & Context
-2. Key Theological Themes & Purpose
-3. Main Literary Structure & Outline
-
-Make sure your response is scholarly, detailed, and formatted beautifully in markdown. At the end of your response, you MUST state: "Note: This response comes from my general knowledge database."
-"""
-                else:
-                    context_str = "\n---\n".join([d.page_content for d in docs[:4]])
-                    formatted_prompt = prompt_tmpl.format(context=context_str, question=query)
+                trans_prompt = f"Translate the following text to English, output ONLY the translation:\\n{original_query}"
+                trans_res = llm.invoke(trans_prompt)
+                translated_query = trans_res.content.strip()
+                
+                en_rmode, en_docs_and_scores = get_docs(translated_query, "en")
+                if en_rmode != "not_found" and en_docs_and_scores:
+                    docs = [d for d, s in en_docs_and_scores]
+                    context_str = "\\n---\\n".join([d.page_content for d in docs[:4]])
                     
-                llm_result = llm.invoke(formatted_prompt)
-                answer = llm_result.content.strip()
-                
-                # Extract token usage
-                usage = extract_token_usage(llm_result, formatted_prompt)
-                tokens_used = usage["total"]
-                
-                # Clean disclaimers
-                for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "⚠️ *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
-                    if d in answer:
-                        answer = answer.replace(d, "").strip()
-                
-                # Add AI Generated disclaimer
-                answer += "\n\n⚠️ AI Generated — This answer was not found in the dataset and was generated by AI"
-                
-                is_general_knowledge = is_overview or "general knowledge" in answer.lower()
-                top_ref = docs[0].metadata.get("reference", "1:1") if not is_overview else "1:1"
-                
-                stats = check_and_update_rate_limits()
-                stats["total_tokens_used"] += tokens_used
-                stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
-                save_tokens_data(stats)
-            except Exception as err:
-                print(f"RAG Pipeline Runtime Error: {err}. Falling back to offline response.")
-                top_doc = docs[0]
-                answer = top_doc.metadata.get("response", "") + "\n\n*⚠️ Warning: AI generation failed. Served best offline response.*"
-                top_ref = top_doc.metadata.get("reference", "1:1")
-                stats = load_tokens_data()
-                
-    # Shared Related Questions Logic (All tiers)
-    excluded_set = {normalize_text(q) for q in (request.history or []) + [query]}
+                    formatted_prompt = prompt_tmpl.format(context=context_str, question=original_query, user_language=lang_name)
+                    llm_result = llm.invoke(formatted_prompt)
+                    answer = llm_result.content.strip()
+                    top_ref = docs[0].metadata.get("reference", "1:1")
+                    source = "translated_from_en"
+                    tier_matched = 3
+                    
+                    usage = extract_token_usage(llm_result, formatted_prompt)
+                    tokens_used += usage["total"]
+            except Exception as e:
+                print(f"Translation Fallback Failed: {e}")
+
+    # --- Step 3: General AI Fallback ---
+    if tier_matched == 0:
+        if is_overview and book_code in OFFLINE_OVERVIEWS and lang_code == "en":
+            answer = OFFLINE_OVERVIEWS[book_code]
+            source = "dataset_native"
+            is_general_knowledge = True
+        else:
+            if rate_limited or tokens_data["pending_tokens"] <= 0:
+                answer = "Token quota exhausted or rate limit active. Please try again later."
+                source = "dataset_native"
+            else:
+                llm = get_llm_instance(active_provider)
+                if llm:
+                    try:
+                        if is_overview:
+                            formatted_prompt = f"You are the scholarly Bible Study Chatbot for 'Vachan Study'. Please provide a comprehensive, scholarly, and structured overview of the Bible book '{book_code}' strictly IN {lang_name}. Cover Historical Background, Key Themes, and Outline. State at the end: 'Note: This response comes from my general knowledge database.'"
+                        else:
+                            formatted_prompt = f"You are the scholarly Bible Study Chatbot. Please answer the following question strictly IN {lang_name} using your general knowledge: {original_query}"
+                            
+                        llm_result = llm.invoke(formatted_prompt)
+                        answer = llm_result.content.strip()
+                        source = "ai_fallback"
+                        is_general_knowledge = True
+                        
+                        usage = extract_token_usage(llm_result, formatted_prompt)
+                        tokens_used += usage["total"]
+                    except Exception as e:
+                        print(f"AI Fallback Failed: {e}")
+                        if docs_and_scores:
+                            answer = docs_and_scores[0][0].metadata.get("response", "")
+                            source = "dataset_native"
+
+    # Clean up disclaimers
+    for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "⚠️ *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
+        if d in answer:
+            answer = answer.replace(d, "").strip()
+            
+    if tokens_used > 0:
+        stats = check_and_update_rate_limits()
+        stats["total_tokens_used"] += tokens_used
+        stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
+        save_tokens_data(stats)
+
+    excluded_set = {normalize_text(q) for q in (request.history or []) + [original_query]}
     suggested = []
     for doc in docs:
         q = doc.metadata.get("question")
@@ -640,7 +663,6 @@ Make sure your response is scholarly, detailed, and formatted beautifully in mar
         requests_this_minute=stats.get("requests_this_minute", 0),
         source=source
     )
-
 
 class QARecord(BaseModel):
     Reference: str
