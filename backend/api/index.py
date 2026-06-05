@@ -603,26 +603,51 @@ async def chat_endpoint(request: ChatRequest):
                 answer = "Token quota exhausted or rate limit active. Please try again later."
                 source = "dataset_native"
             else:
-                llm = get_llm_instance(active_provider)
-                if llm:
+                if active_provider == "gemini" and GEMINI_KEY:
+                    import google.generativeai as genai
+                    genai.configure(api_key=GEMINI_KEY)
+                    gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+                    # Enable native Google Search Grounding
+                    model = genai.GenerativeModel(model_name=gemini_model_name, tools='google_search_retrieval')
                     try:
                         if is_overview:
                             formatted_prompt = f"You are the scholarly Bible Study Chatbot for 'Vachan Study'. Please provide a comprehensive, scholarly, and structured overview of the Bible book '{book_code}' strictly IN {lang_name}. Cover Historical Background, Key Themes, and Outline. State at the end: 'Note: This response comes from my general knowledge database.'"
                         else:
                             formatted_prompt = f"You are the scholarly Bible Study Chatbot. Please answer the following question strictly IN {lang_name} using your general knowledge: {original_query}"
                             
-                        llm_result = llm.invoke(formatted_prompt)
-                        answer = llm_result.content.strip()
+                        response = model.generate_content(formatted_prompt)
+                        answer = response.text.strip()
                         source = "ai_fallback"
                         is_general_knowledge = True
                         
-                        usage = extract_token_usage(llm_result, formatted_prompt)
-                        tokens_used += usage["total"]
+                        # Approximate tokens
+                        tokens_used += max(1, int(len(formatted_prompt)/4)) + max(1, int(len(answer)/4))
                     except Exception as e:
-                        print(f"AI Fallback Failed: {e}")
+                        print(f"Native Gemini Fallback Failed: {e}")
                         if docs_and_scores:
                             answer = docs_and_scores[0][0].metadata.get("response", "")
                             source = "dataset_native"
+                else:
+                    llm = get_llm_instance(active_provider)
+                    if llm:
+                        try:
+                            if is_overview:
+                                formatted_prompt = f"You are the scholarly Bible Study Chatbot for 'Vachan Study'. Please provide a comprehensive, scholarly, and structured overview of the Bible book '{book_code}' strictly IN {lang_name}. Cover Historical Background, Key Themes, and Outline. State at the end: 'Note: This response comes from my general knowledge database.'"
+                            else:
+                                formatted_prompt = f"You are the scholarly Bible Study Chatbot. Please answer the following question strictly IN {lang_name} using your general knowledge: {original_query}"
+                                
+                            llm_result = llm.invoke(formatted_prompt)
+                            answer = llm_result.content.strip()
+                            source = "ai_fallback"
+                            is_general_knowledge = True
+                            
+                            usage = extract_token_usage(llm_result, formatted_prompt)
+                            tokens_used += usage["total"]
+                        except Exception as e:
+                            print(f"AI Fallback Failed: {e}")
+                            if docs_and_scores:
+                                answer = docs_and_scores[0][0].metadata.get("response", "")
+                                source = "dataset_native"
 
     # Clean up disclaimers
     for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "⚠️ *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
