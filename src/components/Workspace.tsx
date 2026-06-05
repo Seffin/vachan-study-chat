@@ -6,6 +6,8 @@ import {
   Send, Mic, ChevronLeft, Menu, Eye, Sparkles, Check
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { 
   booksList, matthew1Content, defaultAIResponse, Section 
 } from "../data/mockBible";
@@ -39,6 +41,7 @@ interface Message {
   versesHighlighted?: string[];
   isCustom?: boolean;
   isGeneralKnowledge?: boolean;
+  source?: "dataset" | "ai";
 }
 
 // Helper to translate full book names into standard 3-letter USFM codes
@@ -386,7 +389,8 @@ export default function Workspace({
         text: data.answer,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         versesHighlighted: data.reference ? [data.reference.split(":")[1]] : [],
-        isGeneralKnowledge: data.is_general_knowledge || false
+        isGeneralKnowledge: data.is_general_knowledge || false,
+        source: data.source as "dataset" | "ai"
       };
       setMessages(prev => [...prev, newAIMessage]);
 
@@ -710,49 +714,41 @@ export default function Workspace({
 
                 {/* Bubble Card Container */}
                 <div className="p-4 rounded-xl border border-zinc-200/80 bg-zinc-50/70 dark:border-zinc-800 dark:bg-zinc-900/60 text-zinc-900 dark:text-zinc-100 text-sm sm:text-base leading-relaxed shadow-sm">
-                  <div className="whitespace-pre-line font-sans text-[14px] text-stone-850 dark:text-zinc-150">
-                    {message.text.split("\n").map((paragraph, index) => {
-                      if (paragraph.startsWith(">")) {
-                        return (
-                          <blockquote key={index} className="my-3 pl-3.5 border-l-3 border-zinc-800 dark:border-zinc-500 bg-white/60 dark:bg-zinc-950/40 py-2.5 pr-2.5 rounded-r-lg font-serif italic text-stone-700 dark:text-zinc-300 text-[13.5px]">
-                            {paragraph.substring(1).trim()}
-                          </blockquote>
-                        );
-                      }
-
-                      const parts = paragraph.split(/(\*\*.*?\*\*|\*.*?\*)/g);
-                      return (
-                        <p key={index} className="mb-2 last:mb-0">
-                          {parts.map((part, pIdx) => {
-                            if (part.startsWith("**") && part.endsWith("**")) {
-                              return <strong key={pIdx} className="font-bold text-stone-950 dark:text-white">{part.slice(2, -2)}</strong>;
-                            }
-                            if (part.startsWith("*") && part.endsWith("*")) {
-                              return <em key={pIdx} className="italic text-stone-600 dark:text-zinc-400">{part.slice(1, -1)}</em>;
-                            }
-                            return part;
-                          })}
-                        </p>
-                      );
-                    })}
+                  <div className="font-sans text-[14px] text-stone-850 dark:text-zinc-150 overflow-hidden break-words">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: ({ node, ...props }) => <p className="mb-3 last:mb-0" {...props} />,
+                        strong: ({ node, ...props }) => <strong className="font-bold text-stone-950 dark:text-white" {...props} />,
+                        em: ({ node, ...props }) => <em className="italic text-stone-600 dark:text-zinc-400" {...props} />,
+                        blockquote: ({ node, ...props }) => (
+                          <blockquote className="my-3 pl-3.5 border-l-4 border-zinc-800 dark:border-zinc-500 bg-white/60 dark:bg-zinc-950/40 py-2.5 pr-2.5 rounded-r-lg font-serif italic text-stone-700 dark:text-zinc-300 text-[13.5px]" {...props} />
+                        ),
+                        ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-3 space-y-1" {...props} />,
+                        ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-3 space-y-1" {...props} />,
+                        li: ({ node, ...props }) => <li className="pl-1" {...props} />,
+                        h1: ({ node, ...props }) => <h1 className="text-lg font-bold mt-4 mb-2 text-stone-950 dark:text-white" {...props} />,
+                        h2: ({ node, ...props }) => <h2 className="text-base font-bold mt-4 mb-2 text-stone-950 dark:text-white" {...props} />,
+                        h3: ({ node, ...props }) => <h3 className="text-sm font-bold mt-3 mb-2 text-stone-950 dark:text-white" {...props} />,
+                        a: ({ node, ...props }) => <a className="text-amber-600 hover:text-amber-700 underline" {...props} />
+                      }}
+                    >
+                      {message.text}
+                    </ReactMarkdown>
                   </div>
-
-                  {/* Disclaimer - REQUIRED EXACTLY */}
-                  {message.id !== "init-1" && !message.id.startsWith("init-") && (
-                    <div className="mt-4 pt-3 border-t border-zinc-200/60 dark:border-zinc-800/80 text-[10px] italic text-zinc-400 dark:text-zinc-500 select-none flex items-center gap-1">
-                      <span>
-                        {message.isGeneralKnowledge 
-                          ? "⚠️ This is an AI-generated response based on the unfoldingWord dataset." 
-                          : "This response based on the unfoldingWord dataset."
-                        }
-                      </span>
-                    </div>
-                  )}
                 </div>
 
-                <span className="text-[10px] text-zinc-400 dark:text-zinc-500 pl-1">
-                  {message.timestamp}
-                </span>
+                <div className="flex items-center gap-3 pl-1 mt-0.5">
+                  <span className="text-[10px] text-zinc-400 dark:text-zinc-500 whitespace-nowrap shrink-0">
+                    {message.timestamp}
+                  </span>
+                  {message.source === "ai" && (
+                    <div className="text-xs text-amber-600 mt-1 ml-1 flex items-center gap-1"><span>⚠️</span> AI-generated fallback response</div>
+                  )}
+                  {message.source === "dataset" && (
+                    <div className="text-xs text-green-600 mt-1 ml-1 flex items-center gap-1"><span>✅</span> Retrieved from dataset</div>
+                  )}
+                </div>
               </motion.div>
             );
           })}
