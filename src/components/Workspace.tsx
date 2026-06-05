@@ -466,6 +466,9 @@ export default function Workspace({
 
   // Books menu items
   const sidebarBooks = booksList;
+  const currentTestament = booksList.find(b => b.name === selectedBook)?.testament === "Old" 
+    ? "Old Testament" 
+    : "New Testament";
 
   return (
     <div className="flex-1 flex h-full overflow-hidden relative transition-colors duration-300">
@@ -486,7 +489,7 @@ export default function Workspace({
             <h2 className="font-sans font-bold text-lg text-zinc-900 dark:text-zinc-100">Scripture Navigator</h2>
           </div>
           <p className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
-            New Testament
+            {currentTestament}
           </p>
         </div>
 
@@ -563,7 +566,7 @@ export default function Workspace({
               <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
                 <div>
                   <h2 className="font-serif font-bold text-lg text-stone-900 dark:text-zinc-100">Navigator</h2>
-                  <p className="text-[10px] text-stone-400 dark:text-zinc-500 uppercase tracking-widest font-bold">New Testament</p>
+                  <p className="text-[10px] text-stone-400 dark:text-zinc-500 uppercase tracking-widest font-bold">{currentTestament}</p>
                 </div>
                 <button onClick={() => setLeftOpen(false)} className="p-2 text-stone-400 hover:text-stone-900 dark:hover:text-zinc-100">
                   <ChevronLeft className="w-5 h-5" />
