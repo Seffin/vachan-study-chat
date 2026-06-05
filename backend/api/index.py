@@ -2,7 +2,7 @@ import os
 import sys
 import json
 import time
-import pandas as pd
+import csv
 import subprocess
 import urllib.request
 import zipfile
@@ -74,9 +74,9 @@ class Document:
 
 class SemanticRetriever:
     """Fallback semantic matcher. Uses basic word overlap score if no active keys are set."""
-    def __init__(self, df: pd.DataFrame):
+    def __init__(self, records: List[Dict[str, str]]):
         self.docs = []
-        for _, row in df.iterrows():
+        for row in records:
             page_content = f"Reference: {row['Reference']}\nQuestion: {row['Question']}\nResponse: {row['Response']}"
             metadata = {
                 "reference": str(row["Reference"]),
@@ -209,36 +209,40 @@ def get_retriever_for_book(book_code: str) -> tuple:
 
     try:
         is_tsv = tsv_path.endswith('.tsv')
-        df = pd.read_csv(tsv_path, sep='\t' if is_tsv else ',')
+        records = []
+        with open(tsv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter='\t' if is_tsv else ',')
+            
+            # Normalize column names in the header
+            normalized_fieldnames = []
+            for field in (reader.fieldnames or []):
+                field_clean = field.strip()
+                if field_clean.lower() == 'reference': field_clean = 'Reference'
+                elif field_clean.lower() == 'question': field_clean = 'Question'
+                elif field_clean.lower() == 'response': field_clean = 'Response'
+                normalized_fieldnames.append(field_clean)
+            reader.fieldnames = normalized_fieldnames
+            
+            for row in reader:
+                records.append({
+                    "Reference": str(row.get("Reference") or "1:1").strip() or "1:1",
+                    "Question": str(row.get("Question") or "").strip(),
+                    "Response": str(row.get("Response") or "").strip()
+                })
         
-        # Normalize columns
-        df.rename(columns={
-            'reference': 'Reference',
-            'Reference': 'Reference',
-            'question': 'Question',
-            'Question': 'Question',
-            'response': 'Response',
-            'Response': 'Response'
-        }, inplace=True)
-        
-        df.columns = df.columns.str.strip()
-        df['Reference'] = df['Reference'].fillna('1:1').astype(str)
-        df['Question'] = df['Question'].fillna('').astype(str)
-        df['Response'] = df['Response'].fillna('').astype(str)
-        
-        book_retriever = SemanticRetriever(df)
+        book_retriever = SemanticRetriever(records)
         retrievers[book_code] = (active_provider if active_provider else "semantic", book_retriever)
         print(f"RAG System: Offline Semantic Retriever cached for '{book_code}' (Inference Mode: {active_provider if active_provider else 'semantic'}).")
         return retrievers[book_code]
     except Exception as e:
         print(f"RAG System: Failed to build offline semantic retriever for '{book_code}' ({e}). Returning emergency fallback.")
         # Hardcoded emergency fallback
-        dummy_df = pd.DataFrame([{
+        dummy_records = [{
             "Reference": "1:1",
             "Question": "What is the study book?",
             "Response": "Welcome to Vachan Study Bible Study Chatbot."
-        }])
-        book_retriever = SemanticRetriever(dummy_df)
+        }]
+        book_retriever = SemanticRetriever(dummy_records)
         retrievers[book_code] = (active_provider if active_provider else "semantic", book_retriever)
         return retrievers[book_code]
 
@@ -671,30 +675,26 @@ async def get_book_dataset(book: str):
         
     try:
         is_tsv = tsv_path.endswith('.tsv')
-        df = pd.read_csv(tsv_path, sep='\t' if is_tsv else ',')
-        
-        # Normalize columns
-        df.rename(columns={
-            'reference': 'Reference',
-            'Reference': 'Reference',
-            'question': 'Question',
-            'Question': 'Question',
-            'response': 'Response',
-            'Response': 'Response'
-        }, inplace=True, errors='ignore')
-        
-        df.columns = df.columns.str.strip()
-        df['Reference'] = df['Reference'].fillna('1:1').astype(str)
-        df['Question'] = df['Question'].fillna('').astype(str)
-        df['Response'] = df['Response'].fillna('').astype(str)
-        
         records = []
-        for _, row in df.iterrows():
-            records.append({
-                "Reference": str(row["Reference"]),
-                "Question": str(row["Question"]),
-                "Response": str(row["Response"])
-            })
+        with open(tsv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter='\t' if is_tsv else ',')
+            
+            # Normalize column names
+            normalized_fieldnames = []
+            for field in (reader.fieldnames or []):
+                field_clean = field.strip()
+                if field_clean.lower() == 'reference': field_clean = 'Reference'
+                elif field_clean.lower() == 'question': field_clean = 'Question'
+                elif field_clean.lower() == 'response': field_clean = 'Response'
+                normalized_fieldnames.append(field_clean)
+            reader.fieldnames = normalized_fieldnames
+            
+            for row in reader:
+                records.append({
+                    "Reference": str(row.get("Reference") or "1:1").strip() or "1:1",
+                    "Question": str(row.get("Question") or "").strip(),
+                    "Response": str(row.get("Response") or "").strip()
+                })
             
         return BookDatasetResponse(
             book=book_code,
