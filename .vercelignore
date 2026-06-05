@@ -5,3 +5,4 @@ backend/data/en_tq/.git/
 backend/__pycache__/
 *.tsbuildinfo
 .DS_Store
+backend/static_data/vectorstores/
