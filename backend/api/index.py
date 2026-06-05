@@ -497,10 +497,10 @@ async def chat_endpoint(request: ChatRequest):
     if not original_query:
         raise HTTPException(status_code=400, detail="Query message cannot be empty.")
         
-    print(f"API Chat Query: '{original_query}' for book '{book_code}'")
+    print(f"API Chat Query: '{original_query}' for book '{book_code}'", flush=True)
 
     lang_code, lang_name = detect_user_language(original_query)
-    print(f"Detected Language: {lang_name} ({lang_code})")
+    print(f"Detected Language: {lang_name} ({lang_code})", flush=True)
 
     rate_limited, limit_msg = is_rate_limited()
     tokens_data = load_tokens_data()
@@ -515,7 +515,7 @@ async def chat_endpoint(request: ChatRequest):
     is_general_knowledge = False
     docs = []
 
-    active_provider = "openai" if OPENAI_KEY else "gemini" if GEMINI_KEY else "semantic"
+    active_provider = "gemini" if GEMINI_KEY else "openai" if OPENAI_KEY else "semantic"
 
     def get_docs(query, lang):
         rmode, retriever = get_retriever_for_book(book_code, lang_code=lang)
@@ -567,7 +567,7 @@ async def chat_endpoint(request: ChatRequest):
 
     # --- Step 2: English Translation Fallback ---
     if tier_matched == 0 and not is_overview and lang_code != "en" and not rate_limited and tokens_data["pending_tokens"] > 0:
-        print("Native dataset missed. Attempting English Translation Fallback...")
+        print("Native dataset missed. Attempting English Translation Fallback...", flush=True)
         llm = get_llm_instance(active_provider)
         if llm:
             try:
@@ -590,7 +590,7 @@ async def chat_endpoint(request: ChatRequest):
                     usage = extract_token_usage(llm_result, formatted_prompt)
                     tokens_used += usage["total"]
             except Exception as e:
-                print(f"Translation Fallback Failed: {e}")
+                print(f"Translation Fallback Failed: {e}", flush=True)
 
     # --- Step 3: General AI Fallback ---
     if tier_matched == 0:
@@ -607,8 +607,8 @@ async def chat_endpoint(request: ChatRequest):
                     import google.generativeai as genai
                     genai.configure(api_key=GEMINI_KEY)
                     gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-                    # Enable native Google Search Grounding
-                    model = genai.GenerativeModel(model_name=gemini_model_name, tools='google_search_retrieval')
+                    # Enable native Google Search Grounding (Disabled due to SDK limitation)
+                    model = genai.GenerativeModel(model_name=gemini_model_name)
                     try:
                         if is_overview:
                             formatted_prompt = f"You are the scholarly Bible Study Chatbot for 'Vachan Study'. Please provide a comprehensive, scholarly, and structured overview of the Bible book '{book_code}' strictly IN {lang_name}. Cover Historical Background, Key Themes, and Outline. State at the end: 'Note: This response comes from my general knowledge database.'"
@@ -623,7 +623,7 @@ async def chat_endpoint(request: ChatRequest):
                         # Approximate tokens
                         tokens_used += max(1, int(len(formatted_prompt)/4)) + max(1, int(len(answer)/4))
                     except Exception as e:
-                        print(f"Native Gemini Fallback Failed: {e}")
+                        print(f"Native Gemini Fallback Failed: {e}", flush=True)
                         if docs_and_scores:
                             answer = docs_and_scores[0][0].metadata.get("response", "")
                             source = "dataset_native"
@@ -644,7 +644,7 @@ async def chat_endpoint(request: ChatRequest):
                             usage = extract_token_usage(llm_result, formatted_prompt)
                             tokens_used += usage["total"]
                         except Exception as e:
-                            print(f"AI Fallback Failed: {e}")
+                            print(f"AI Fallback Failed: {e}", flush=True)
                             if docs_and_scores:
                                 answer = docs_and_scores[0][0].metadata.get("response", "")
                                 source = "dataset_native"
@@ -808,6 +808,34 @@ async def reset_tokens_endpoint():
         requests_today=default_data["requests_today"],
         requests_this_minute=default_data["requests_this_minute"]
     )
+
+from dotenv import set_key
+
+class EnvUpdateRequest(BaseModel):
+    key: str
+    value: str
+
+@app.post("/api/settings/env")
+async def update_env(request: EnvUpdateRequest):
+    allowed_keys = ["OPENAI_API_KEY", "GEMINI_API_KEY", "OPENAI_MODEL", "GEMINI_MODEL"]
+    if request.key not in allowed_keys:
+        raise HTTPException(status_code=400, detail="Invalid environment variable key")
+    
+    env_path = os.path.join(BACKEND_DIR, ".env")
+    try:
+        set_key(env_path, request.key, request.value)
+    except Exception as e:
+        print(f"RAG System: Failed to write to .env file ({e})")
+        
+    os.environ[request.key] = request.value
+    
+    global GEMINI_KEY, OPENAI_KEY
+    if request.key == "GEMINI_API_KEY":
+        GEMINI_KEY = request.value
+    elif request.key == "OPENAI_API_KEY":
+        OPENAI_KEY = request.value
+        
+    return {"status": "success", "message": f"{request.key} updated successfully"}
 
 def normalize_book_code(book: str) -> str:
     book_clean = book.upper().replace(" ", "").replace("_", "").strip()
