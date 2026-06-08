@@ -75,6 +75,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from db.mongodb import connect_to_mongo, close_mongo_connection, get_database
+from datetime import datetime, timezone
+
+@app.on_event("startup")
+async def startup_db_client():
+    await connect_to_mongo()
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    await close_mongo_connection()
+
 # Environment keys and models
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
@@ -192,87 +203,47 @@ def get_retriever_for_book(book_code: str, lang_code: str = "en") -> tuple:
         except Exception as e:
             print(f"RAG System: Failed to load OpenAIEmbeddings ({e})")
 
-    # If provider API keys exist, attempt loading pre-compiled FAISS index from static_data/vectorstores
+    # If provider API keys exist, attempt loading from MongoDB Atlas Vector Search
     if active_provider and embeddings and index_subdir:
         try:
-            from langchain_community.vectorstores import FAISS
-            index_path = os.path.join(STATIC_DATA_DIR, "vectorstores", f"{lang_code}_{index_subdir}", book_code)
-            if not os.path.exists(index_path):
-                index_path = os.path.join(STATIC_DATA_DIR, "vectorstores", index_subdir, book_code)
+            from langchain_mongodb import MongoDBAtlasVectorSearch
+            from db.mongodb import get_database
             
-            if os.path.exists(index_path) and os.path.exists(os.path.join(index_path, "index.faiss")):
-                print(f"RAG System: Persistent FAISS Index ({active_provider}) found for '{book_code}' at {index_path}. Loading...")
-                vectorstore = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
-                book_retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
+            db = get_database()
+            if db is not None:
+                collection = db["vector_embeddings"]
+                print(f"RAG System: Connecting to MongoDB Atlas Vector Search ({active_provider}) for '{book_code}'...", flush=True)
+                
+                vectorstore = MongoDBAtlasVectorSearch(
+                    collection=collection,
+                    embedding=embeddings,
+                    index_name="default",
+                    text_key="question",
+                    embedding_key="embedding"
+                )
+                
+                pre_filter = {
+                    "book_code": {"$eq": book_code},
+                    "lang_code": {"$eq": lang_code}
+                }
+                
+                book_retriever = vectorstore.as_retriever(
+                    search_kwargs={
+                        "k": 10,
+                        "pre_filter": {"$and": [{"book_code": book_code}, {"lang_code": lang_code}]}
+                    }
+                )
                 retrievers[cache_key] = (active_provider, book_retriever)
                 return retrievers[cache_key]
             else:
-                print(f"RAG System: Pre-compiled FAISS index not found for '{book_code}' under static_data. Falling back...")
+                print(f"RAG System: MongoDB database not connected. Falling back...")
         except Exception as e:
-            print(f"RAG System: FAISS index loading failed for '{book_code}' ({e}). Falling back...")
+            print(f"RAG System: MongoDB Atlas Vector Search loading failed for '{book_code}' ({e}). Falling back...")
 
-    # Mode 3: Offline Semantic Overlap / TSV fallback
-    print(f"RAG System: Initiating Mode 3 (Offline Semantic Overlap) for '{book_code}'...")
-    
-    # Check paths: 1. data/en_tq/tq_{book}.tsv, 2. static_data/tq_{book}.csv, 3. static_data/tq_MAT.csv
-    tsv_filename = f"tq_{book_code}.tsv"
-    tsv_path = os.path.join(DATA_DIR, f"{lang_code}_tq", tsv_filename)
-    
-    if not os.path.exists(tsv_path):
-        if lang_code == "en":
-            # Look in static_data for book csv
-            csv_filename = f"tq_{book_code}.csv"
-            csv_path = os.path.join(STATIC_DATA_DIR, csv_filename)
-            if os.path.exists(csv_path):
-                tsv_path = csv_path
-            else:
-                # Fall back to Matthew
-                tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
-                if not os.path.exists(tsv_path):
-                    from scripts.build_vector_db import bootstrap_data
-                    bootstrap_data()
-                    tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
-        else:
-            return "not_found", None
-
-    try:
-        is_tsv = tsv_path.endswith('.tsv')
-        records = []
-        with open(tsv_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f, delimiter='\t' if is_tsv else ',')
-            
-            # Normalize column names in the header
-            normalized_fieldnames = []
-            for field in (reader.fieldnames or []):
-                field_clean = field.strip()
-                if field_clean.lower() == 'reference': field_clean = 'Reference'
-                elif field_clean.lower() == 'question': field_clean = 'Question'
-                elif field_clean.lower() == 'response': field_clean = 'Response'
-                normalized_fieldnames.append(field_clean)
-            reader.fieldnames = normalized_fieldnames
-            
-            for row in reader:
-                records.append({
-                    "Reference": str(row.get("Reference") or "1:1").strip() or "1:1",
-                    "Question": str(row.get("Question") or "").strip(),
-                    "Response": str(row.get("Response") or "").strip()
-                })
-        
-        book_retriever = SemanticRetriever(records)
-        retrievers[cache_key] = (active_provider if active_provider else "semantic", book_retriever)
-        print(f"RAG System: Offline Semantic Retriever cached for '{book_code}' (Inference Mode: {active_provider if active_provider else 'semantic'}).")
-        return retrievers[cache_key]
-    except Exception as e:
-        print(f"RAG System: Failed to build offline semantic retriever for '{book_code}' ({e}). Returning emergency fallback.")
-        # Hardcoded emergency fallback
-        dummy_records = [{
-            "Reference": "1:1",
-            "Question": "What is the study book?",
-            "Response": "Welcome to Vachan Study Bible Study Chatbot."
-        }]
-        book_retriever = SemanticRetriever(dummy_records)
-        retrievers[cache_key] = (active_provider if active_provider else "semantic", book_retriever)
-        return retrievers[cache_key]
+    # Remove the offline Mode 3 fallback entirely. If MongoDB vector search isn't working, 
+    # we just return "not_found", None to force general LLM fallback.
+    print(f"RAG System: Cloud Vector Search not initialized for '{book_code}'. Falling back to general AI knowledge...")
+    return "not_found", None
 
 # =====================================================================
 # 📊 PERSISTENT TOKEN MONITORING & RATE-LIMITS (GEMINI FREE TIER)
@@ -675,6 +646,53 @@ async def chat_endpoint(request: ChatRequest):
             break
         if normalize_text(d) not in excluded_set and d not in suggested:
             suggested.append(d)
+    # --- MongoDB Persistence ---
+    try:
+        db = get_database()
+        if db is not None:
+            user_id = "default_user"
+            session_id = f"{user_id}_{book_code}"
+            
+            # Format timestamp exactly like frontend (HH:MM AM/PM or just 2-digit)
+            # Frontend uses new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            # But UTC ISO format is safer for the database. We will use ISO and frontend can parse it.
+            iso_timestamp = datetime.now(timezone.utc).isoformat()
+            
+            # Create the history array elements for this turn
+            turn_history = [
+                {
+                    "sender": "user",
+                    "text": original_query,
+                    "timestamp": iso_timestamp
+                },
+                {
+                    "sender": "ai",
+                    "text": answer,
+                    "timestamp": iso_timestamp,
+                    "versesHighlighted": [top_ref.split(":")[1]] if ":" in top_ref else [],
+                    "source": source
+                }
+            ]
+            
+            await db.chat_sessions.update_one(
+                {"session_id": session_id},
+                {
+                    "$set": {
+                        "user_id": user_id,
+                        "book_code": book_code,
+                        "updated_at": datetime.now(timezone.utc)
+                    },
+                    "$setOnInsert": {
+                        "created_at": datetime.now(timezone.utc)
+                    },
+                    "$push": {
+                        "history": {"$each": turn_history}
+                    }
+                },
+                upsert=True
+            )
+    except Exception as e:
+        print(f"MongoDB Persistence Error: {e}", flush=True)
 
     return ChatResponse(
         answer=answer,
@@ -889,39 +907,27 @@ def parse_html_to_verses(html: str) -> list:
 
 @app.get("/api/scripture/{book}/{chapter}")
 async def get_scripture(book: str, chapter: int):
-    print(f"API Scripture Fetch: {book} Chapter {chapter}")
+    """Fetches scripture text from MongoDB or falls back to API.Bible."""
     book_code = normalize_book_code(book)
     
-    # 1. Zero-Latency synchronous file read from static_data bundle
-    json_filename = f"bible_{book_code}.json"
-    json_path = os.path.join(STATIC_DATA_DIR, json_filename)
-    
-    if os.path.exists(json_path):
-        try:
-            print(f"Bible Asset Sync Read: Loading pre-compiled '{book_code}' JSON...")
-            with open(json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                
-            # If the JSON contains a single chapter matching the requested one
-            if isinstance(data, dict):
-                if data.get("chapter") == chapter:
-                    print(f"Bible Asset Sync Read Success: Loaded '{book_code}' Chapter {chapter}!")
-                    return data
-                elif "chapters" in data:
-                    # Filter and extract specific chapter from multi-chapter book JSON
-                    for ch in data["chapters"]:
-                        if ch.get("chapter") == chapter:
-                            print(f"Bible Asset Sync Read Success: Extracted '{book_code}' Chapter {chapter}!")
-                            return {
-                                "book": data.get("book", book_code),
-                                "chapter": chapter,
-                                "reference": ch.get("reference", f"{book_code} {chapter}"),
-                                "verses": ch.get("verses", [])
-                            }
-        except Exception as e:
-            print(f"Bible Asset Sync Read Exception ({e}). Falling back to live fetching...")
-
-    # 2. Dynamic failsafe fallback: Fetch from live API.Bible if key is set
+    # Mode 1: Try MongoDB Atlas collection
+    try:
+        db = get_database()
+        if db is not None:
+            collection = db["scripture_text"]
+            doc = await collection.find_one({"book": book_code, "chapter": chapter})
+            
+            if doc and "verses" in doc:
+                return {
+                    "book": book,
+                    "chapter": chapter,
+                    "verses": doc["verses"],
+                    "source": "mongodb"
+                }
+    except Exception as e:
+        print(f"Failed to fetch scripture from MongoDB: {e}")
+        
+    # Mode 2: Dynamic API.Bible fetch
     if BIBLE_API_KEY:
         try:
             base_url = BIBLE_API_URL
@@ -968,6 +974,42 @@ async def get_scripture(book: str, chapter: int):
             {"verse": 2, "text": f"This is placeholder scripture context for {book.capitalize()} chapter {chapter} verse 2."}
         ]
     }
+
+@app.get("/api/history/{book}")
+async def get_history(book: str):
+    """Fetches the chat history for a specific book."""
+    try:
+        db = get_database()
+        if db is None:
+            return {"history": []}
+            
+        book_code = normalize_book_code(book)
+        user_id = "default_user"
+        session_id = f"{user_id}_{book_code}"
+        
+        session = await db.chat_sessions.find_one({"session_id": session_id})
+        
+        if session and "history" in session:
+            # We need to map MongoDB history to Frontend Message type
+            history = session["history"]
+            
+            frontend_messages = []
+            for i, msg in enumerate(history):
+                frontend_messages.append({
+                    "id": f"{msg['sender']}-{session_id}-{i}",
+                    "sender": msg["sender"],
+                    "text": msg["text"],
+                    "timestamp": msg.get("timestamp", ""),
+                    "versesHighlighted": msg.get("versesHighlighted", []),
+                    "source": msg.get("source", "dataset_native")
+                })
+                
+            return {"history": frontend_messages}
+            
+        return {"history": []}
+    except Exception as e:
+        print(f"MongoDB Fetch History Error: {e}")
+        return {"history": []}
 
 if __name__ == "__main__":
     import uvicorn

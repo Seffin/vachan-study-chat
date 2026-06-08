@@ -20,3 +20,5 @@ env/
 # Dynamic Q&A data sources
 # data/
 
+static_data/
+data/

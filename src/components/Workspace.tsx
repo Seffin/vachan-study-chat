@@ -191,22 +191,41 @@ export default function Workspace({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
-  // 1. Reset Workspace and Chat Context on Book Switch
+  // 1. Reset Workspace and Fetch Chat History on Book Switch
   useEffect(() => {
     const bookName = selectedBook;
     setSelectedChapter(1);
     setSelectedVerse("");
     
-    // 1. Reset chat messages for the chosen book
-    setMessages([
-      getInitialMessageForBook(bookName)
-    ]);
-    
-    // 2. Reset suggested questions
+    // 1. Reset suggested questions and highlights immediately
     setSuggestedQuestions(getInitialQuestionsForBook(bookName));
-    
-    // 3. Reset highlights
     setActiveHighlights(getInitialHighlightsForBook(bookName));
+
+    // 2. Fetch Chat History from MongoDB Backend
+    const fetchHistory = async () => {
+      const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const bookCode = getBookCode(bookName);
+      try {
+        console.log(`Fetching history for ${bookCode} from ${apiURL}/api/history/${bookCode}`);
+        const res = await fetch(`${apiURL}/api/history/${bookCode}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.history && data.history.length > 0) {
+            setMessages(data.history);
+          } else {
+            // Fallback to default welcome message if no history exists
+            setMessages([getInitialMessageForBook(bookName)]);
+          }
+        } else {
+          setMessages([getInitialMessageForBook(bookName)]);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch history, falling back to default.", err);
+        setMessages([getInitialMessageForBook(bookName)]);
+      }
+    };
+
+    fetchHistory();
   }, [selectedBook]);
 
   // 2. Fetch Dynamic Scripture on Book or Chapter Change
