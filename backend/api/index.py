@@ -493,17 +493,24 @@ async def chat_endpoint(request: ChatRequest):
         if not retriever:
             return rmode, []
         
-        if hasattr(retriever, "vectorstore"):
-            try:
-                ds = retriever.vectorstore.similarity_search_with_score(query, k=10)
-            except:
+        try:
+            if hasattr(retriever, "vectorstore"):
+                try:
+                    ds = retriever.vectorstore.similarity_search_with_score(query, k=10)
+                except:
+                    ds = [(d, 0.0) for d in retriever.invoke(query)]
+            elif hasattr(retriever, "retrieve_with_scores"):
+                ds = retriever.retrieve_with_scores(query, k=10)
+            else:
                 ds = [(d, 0.0) for d in retriever.invoke(query)]
-        elif hasattr(retriever, "retrieve_with_scores"):
-            ds = retriever.retrieve_with_scores(query, k=10)
-        else:
-            ds = [(d, 0.0) for d in retriever.invoke(query)]
-            
-        return rmode, ds
+                
+            return rmode, ds
+        except Exception as e:
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                print(f"RAG System: Gemini API Quota Exhausted ({e}).", flush=True)
+                return "quota_exhausted", []
+            print(f"RAG System: Error in get_docs ({e}).", flush=True)
+            return rmode, []
 
     # --- Step 1: Native Retrieval ---
     retriever_mode, docs_and_scores = get_docs(original_query, lang_code)
@@ -565,7 +572,10 @@ async def chat_endpoint(request: ChatRequest):
 
     # --- Step 3: General AI Fallback ---
     if tier_matched == 0:
-        if is_overview and book_code in OFFLINE_OVERVIEWS and lang_code == "en":
+        if retriever_mode == "quota_exhausted":
+            answer = "⚠️ The AI model's free tier quota has been exhausted for this minute. Please wait a moment and try your question again!"
+            source = "ai_general"
+        elif is_overview and book_code in OFFLINE_OVERVIEWS and lang_code == "en":
             answer = OFFLINE_OVERVIEWS[book_code]
             source = "dataset_native"
             is_general_knowledge = True
@@ -595,7 +605,10 @@ async def chat_endpoint(request: ChatRequest):
                         tokens_used += max(1, int(len(formatted_prompt)/4)) + max(1, int(len(answer)/4))
                     except Exception as e:
                         print(f"Native Gemini Fallback Failed: {e}", flush=True)
-                        if docs_and_scores:
+                        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                            answer = "⚠️ The AI model's free tier quota has been exhausted for this minute. Please wait a moment and try your question again!"
+                            source = "ai_general"
+                        elif docs_and_scores:
                             answer = docs_and_scores[0][0].metadata.get("response", "")
                             source = "dataset_native"
                 else:
