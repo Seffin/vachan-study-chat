@@ -585,18 +585,20 @@ async def chat_endpoint(request: ChatRequest):
                 source = "dataset_native"
             else:
                 if active_provider == "gemini" and GEMINI_KEY:
-                    import google.generativeai as genai
-                    genai.configure(api_key=GEMINI_KEY)
+                    from google import genai
+                    client = genai.Client(api_key=GEMINI_KEY)
                     gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-                    # Enable native Google Search Grounding (Disabled due to SDK limitation)
-                    model = genai.GenerativeModel(model_name=gemini_model_name)
+                    
                     try:
                         if is_overview:
                             formatted_prompt = f"You are the scholarly Bible Study Chatbot for 'Vachan Study'. Please provide a comprehensive, scholarly, and structured overview of the Bible book '{book_code}' strictly IN {lang_name}. Cover Historical Background, Key Themes, and Outline. State at the end: 'Note: This response comes from my general knowledge database.'"
                         else:
                             formatted_prompt = f"You are the scholarly Bible Study Chatbot. Please answer the following question strictly IN {lang_name} using your general knowledge: {original_query}"
                             
-                        response = model.generate_content(formatted_prompt)
+                        response = client.models.generate_content(
+                            model=gemini_model_name,
+                            contents=formatted_prompt,
+                        )
                         answer = response.text.strip()
                         source = "ai_general"
                         is_general_knowledge = True
@@ -607,6 +609,9 @@ async def chat_endpoint(request: ChatRequest):
                         print(f"Native Gemini Fallback Failed: {e}", flush=True)
                         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                             answer = "⚠️ The AI model's free tier quota has been exhausted for this minute. Please wait a moment and try your question again!"
+                            source = "ai_general"
+                        elif "503" in str(e) or "UNAVAILABLE" in str(e):
+                            answer = "⚠️ The AI model is currently experiencing high demand and is unavailable. Please try your question again in a few moments."
                             source = "ai_general"
                         elif docs_and_scores:
                             answer = docs_and_scores[0][0].metadata.get("response", "")
