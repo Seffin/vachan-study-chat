@@ -155,11 +155,10 @@ prompt_tmpl = PromptTemplate(
     input_variables=["context", "question", "user_language"],
     template="""You are the scholarly Bible Study Chatbot for "Vachan Study".
 Please answer the following question strictly IN {user_language}.
-Attempt to answer the question using ONLY the provided Context.
-If the provided Context does not contain the answer, use your general AI knowledge to answer the question, but you MUST explicitly mention in your response that the answer comes from general knowledge rather than the specific study text.
 
-Context:
-{context}
+CONTEXT: {context}
+
+INSTRUCTION: You must answer the user's query using ONLY the information provided in the CONTEXT above. If the CONTEXT is empty or does not contain the answer, you are strictly forbidden from generating an answer. Instead, you must output exactly and only: 'DATABASE_MISS: No context found'.
 
 Question: {question}
 
@@ -435,6 +434,14 @@ class ChatRequest(BaseModel):
     message: str
     history: Optional[List[str]] = []
 
+class ChatError(BaseModel):
+    status: bool = False
+    tag: Optional[str] = None
+    message: Optional[str] = None
+
+class SuggestedQuestionsOutput(BaseModel):
+    suggested_questions: List[str]
+
 class ChatResponse(BaseModel):
     answer: str
     reference: str
@@ -446,6 +453,7 @@ class ChatResponse(BaseModel):
     requests_today: int = 0
     requests_this_minute: int = 0
     source: Optional[str] = None
+    error: Optional[ChatError] = None
 
 def get_llm_instance(provider: str):
     llm = None
@@ -488,182 +496,206 @@ async def chat_endpoint(request: ChatRequest):
 
     active_provider = "gemini" if GEMINI_KEY else "openai" if OPENAI_KEY else "semantic"
 
-    def get_docs(query, lang):
-        rmode, retriever = get_retriever_for_book(book_code, lang_code=lang)
-        if not retriever:
-            return rmode, []
+    error_obj = ChatError(status=False)
+    try:
+
+        def get_docs(query, lang):
+            rmode, retriever = get_retriever_for_book(book_code, lang_code=lang)
+            if not retriever:
+                return rmode, []
         
-        try:
-            if hasattr(retriever, "vectorstore"):
-                try:
-                    ds = retriever.vectorstore.similarity_search_with_score(query, k=10)
-                except:
-                    ds = [(d, 0.0) for d in retriever.invoke(query)]
-            elif hasattr(retriever, "retrieve_with_scores"):
-                ds = retriever.retrieve_with_scores(query, k=10)
-            else:
-                ds = [(d, 0.0) for d in retriever.invoke(query)]
-                
-            return rmode, ds
-        except Exception as e:
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                print(f"RAG System: Gemini API Quota Exhausted ({e}).", flush=True)
-                return "quota_exhausted", []
-            print(f"RAG System: Error in get_docs ({e}).", flush=True)
-            return rmode, []
-
-    # --- Step 1: Native Retrieval ---
-    retriever_mode, docs_and_scores = get_docs(original_query, lang_code)
-    tier_matched = 0
-    norm_query = normalize_text(original_query)
-    
-    if retriever_mode != "not_found" and not is_overview and docs_and_scores:
-        for doc, score in docs_and_scores:
-            doc_q = normalize_text(doc.metadata.get("question", ""))
-            if norm_query and doc_q and (norm_query == doc_q or norm_query in doc_q or doc_q in norm_query):
-                answer = doc.metadata.get("response", "")
-                top_ref = doc.metadata.get("reference", "1:1")
-                tier_matched = 1
-                source = "dataset_native"
-                break
-        if tier_matched == 0:
-            top_doc, top_score = docs_and_scores[0]
-            is_semantic_match = False
-            if retriever_mode == "semantic" and top_score > 6:
-                is_semantic_match = True
-            elif retriever_mode != "semantic" and top_score < 0.4:
-                is_semantic_match = True
-                
-            if is_semantic_match:
-                answer = top_doc.metadata.get("response", "")
-                top_ref = top_doc.metadata.get("reference", "1:1")
-                tier_matched = 2
-                source = "dataset_native"
-                
-        if tier_matched > 0:
-            docs = [d for d, s in docs_and_scores]
-
-    # --- Step 2: English Translation Fallback ---
-    if tier_matched == 0 and not is_overview and lang_code != "en" and not rate_limited and tokens_data["pending_tokens"] > 0:
-        print("Native dataset missed. Attempting English Translation Fallback...", flush=True)
-        llm = get_llm_instance(active_provider)
-        if llm:
             try:
-                trans_prompt = f"Translate the following text to English, output ONLY the translation:\\n{original_query}"
-                trans_res = llm.invoke(trans_prompt)
-                translated_query = trans_res.content.strip()
-                
-                en_rmode, en_docs_and_scores = get_docs(translated_query, "en")
-                if en_rmode != "not_found" and en_docs_and_scores:
-                    docs = [d for d, s in en_docs_and_scores]
-                    context_str = "\\n---\\n".join([d.page_content for d in docs[:4]])
-                    
-                    formatted_prompt = prompt_tmpl.format(context=context_str, question=original_query, user_language=lang_name)
-                    llm_result = llm.invoke(formatted_prompt)
-                    answer = llm_result.content.strip()
-                    top_ref = docs[0].metadata.get("reference", "1:1")
-                    source = "translated_from_en"
-                    tier_matched = 3
-                    
-                    usage = extract_token_usage(llm_result, formatted_prompt)
-                    tokens_used += usage["total"]
-            except Exception as e:
-                print(f"Translation Fallback Failed: {e}", flush=True)
-
-    # --- Step 3: General AI Fallback ---
-    if tier_matched == 0:
-        if retriever_mode == "quota_exhausted":
-            answer = "⚠️ The AI model's free tier quota has been exhausted for this minute. Please wait a moment and try your question again!"
-            source = "ai_general"
-        elif is_overview and book_code in OFFLINE_OVERVIEWS and lang_code == "en":
-            answer = OFFLINE_OVERVIEWS[book_code]
-            source = "dataset_native"
-            is_general_knowledge = True
-        else:
-            if rate_limited or tokens_data["pending_tokens"] <= 0:
-                answer = "Token quota exhausted or rate limit active. Please try again later."
-                source = "dataset_native"
-            else:
-                if active_provider == "gemini" and GEMINI_KEY:
-                    from google import genai
-                    client = genai.Client(api_key=GEMINI_KEY)
-                    gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-                    
+                if hasattr(retriever, "vectorstore"):
                     try:
-                        if is_overview:
-                            formatted_prompt = f"You are the scholarly Bible Study Chatbot for 'Vachan Study'. Please provide a comprehensive, scholarly, and structured overview of the Bible book '{book_code}' strictly IN {lang_name}. Cover Historical Background, Key Themes, and Outline. State at the end: 'Note: This response comes from my general knowledge database.'"
-                        else:
-                            formatted_prompt = f"You are the scholarly Bible Study Chatbot. Please answer the following question strictly IN {lang_name} using your general knowledge: {original_query}"
-                            
-                        response = client.models.generate_content(
-                            model=gemini_model_name,
-                            contents=formatted_prompt,
-                        )
-                        answer = response.text.strip()
-                        source = "ai_general"
-                        is_general_knowledge = True
-                        
-                        # Approximate tokens
-                        tokens_used += max(1, int(len(formatted_prompt)/4)) + max(1, int(len(answer)/4))
-                    except Exception as e:
-                        print(f"Native Gemini Fallback Failed: {e}", flush=True)
-                        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                            answer = "⚠️ The AI model's free tier quota has been exhausted for this minute. Please wait a moment and try your question again!"
-                            source = "ai_general"
-                        elif "503" in str(e) or "UNAVAILABLE" in str(e):
-                            answer = "⚠️ The AI model is currently experiencing high demand and is unavailable. Please try your question again in a few moments."
-                            source = "ai_general"
-                        elif docs_and_scores:
-                            answer = docs_and_scores[0][0].metadata.get("response", "")
-                            source = "dataset_native"
+                        ds = retriever.vectorstore.similarity_search_with_score(query, k=10)
+                    except:
+                        ds = [(d, 0.0) for d in retriever.invoke(query)]
+                elif hasattr(retriever, "retrieve_with_scores"):
+                    ds = retriever.retrieve_with_scores(query, k=10)
                 else:
-                    llm = get_llm_instance(active_provider)
-                    if llm:
+                    ds = [(d, 0.0) for d in retriever.invoke(query)]
+                
+                return rmode, ds
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    print(f"RAG System: Gemini API Quota Exhausted ({e}).", flush=True)
+                    return "quota_exhausted", []
+                print(f"RAG System: Error in get_docs ({e}).", flush=True)
+                return rmode, []
+
+        # --- Step 1: Native Retrieval ---
+        retriever_mode, docs_and_scores = get_docs(original_query, lang_code)
+        print(f"DEBUG - RETRIEVED DOCS COUNT: {len(docs_and_scores)}", flush=True)
+        print(f"DEBUG - RAW DOCS: {docs_and_scores}", flush=True)
+        tier_matched = 0
+        norm_query = normalize_text(original_query)
+    
+        if retriever_mode != "not_found" and not is_overview and docs_and_scores:
+            for doc, score in docs_and_scores:
+                doc_q = normalize_text(doc.metadata.get("question", ""))
+                if norm_query and doc_q and (norm_query == doc_q or norm_query in doc_q or doc_q in norm_query):
+                    answer = doc.metadata.get("response", "")
+                    top_ref = doc.metadata.get("reference", "1:1")
+                    tier_matched = 1
+                    source = "dataset_native"
+                    break
+            if tier_matched == 0:
+                top_doc, top_score = docs_and_scores[0]
+                is_semantic_match = False
+                if retriever_mode == "semantic" and top_score > 6:
+                    is_semantic_match = True
+                elif retriever_mode != "semantic" and top_score < 0.35: # Strict threshold filter
+                    is_semantic_match = True
+                
+                if is_semantic_match:
+                    answer = top_doc.metadata.get("response", "")
+                    top_ref = top_doc.metadata.get("reference", "1:1")
+                    tier_matched = 2
+                    source = "dataset_native"
+                
+            if tier_matched > 0:
+                docs = [d for d, s in docs_and_scores]
+
+        # --- Step 2: English Translation Fallback ---
+        if tier_matched == 0 and not is_overview and lang_code != "en" and not rate_limited and tokens_data["pending_tokens"] > 0:
+            print("Native dataset missed. Attempting English Translation Fallback...", flush=True)
+            llm = get_llm_instance(active_provider)
+            if llm:
+                try:
+                    trans_prompt = f"Translate the following text to English, output ONLY the translation:\\n{original_query}"
+                    trans_res = llm.invoke(trans_prompt)
+                    translated_query = trans_res.content.strip()
+                
+                    en_rmode, en_docs_and_scores = get_docs(translated_query, "en")
+                    if en_rmode != "not_found" and en_docs_and_scores:
+                        docs = [d for d, s in en_docs_and_scores]
+                        context_str = "\\n---\\n".join([d.page_content for d in docs[:4]])
+                    
+                        formatted_prompt = prompt_tmpl.format(context=context_str, question=original_query, user_language=lang_name)
+                        llm_result = llm.invoke(formatted_prompt)
+                        answer = llm_result.content.strip()
+                        top_ref = docs[0].metadata.get("reference", "1:1")
+                        source = "translated_from_en"
+                        tier_matched = 3
+                    
+                        usage = extract_token_usage(llm_result, formatted_prompt)
+                        tokens_used += usage["total"]
+                except Exception as e:
+                    print(f"Translation Fallback Failed: {e}", flush=True)
+
+        # --- Step 3: General AI Fallback ---
+        if tier_matched == 0:
+            if retriever_mode == "quota_exhausted":
+                answer = "⚠️ The AI model's free tier quota has been exhausted for this minute. Please wait a moment and try your question again!"
+                source = "ai_general"
+            elif is_overview and book_code in OFFLINE_OVERVIEWS and lang_code == "en":
+                answer = OFFLINE_OVERVIEWS[book_code]
+                source = "dataset_native"
+                is_general_knowledge = True
+            else:
+                if rate_limited or tokens_data["pending_tokens"] <= 0:
+                    answer = "Token quota exhausted or rate limit active. Please try again later."
+                    source = "dataset_native"
+                else:
+                    if active_provider == "gemini" and GEMINI_KEY:
+                        from google import genai
+                        client = genai.Client(api_key=GEMINI_KEY)
+                        gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+                    
                         try:
                             if is_overview:
                                 formatted_prompt = f"You are the scholarly Bible Study Chatbot for 'Vachan Study'. Please provide a comprehensive, scholarly, and structured overview of the Bible book '{book_code}' strictly IN {lang_name}. Cover Historical Background, Key Themes, and Outline. State at the end: 'Note: This response comes from my general knowledge database.'"
                             else:
                                 formatted_prompt = f"You are the scholarly Bible Study Chatbot. Please answer the following question strictly IN {lang_name} using your general knowledge: {original_query}"
-                                
-                            llm_result = llm.invoke(formatted_prompt)
-                            answer = llm_result.content.strip()
+                            
+                            response = client.models.generate_content(
+                                model=gemini_model_name,
+                                contents=formatted_prompt,
+                            )
+                            answer = response.text.strip()
                             source = "ai_general"
                             is_general_knowledge = True
-                            
-                            usage = extract_token_usage(llm_result, formatted_prompt)
-                            tokens_used += usage["total"]
+                        
+                            # Approximate tokens
+                            tokens_used += max(1, int(len(formatted_prompt)/4)) + max(1, int(len(answer)/4))
                         except Exception as e:
-                            print(f"AI Fallback Failed: {e}", flush=True)
-                            if docs_and_scores:
-                                answer = docs_and_scores[0][0].metadata.get("response", "")
-                                source = "dataset_native"
+                            print(f"Native Gemini Fallback Failed: {e}", flush=True)
+                            raise e
+                    else:
+                        llm = get_llm_instance(active_provider)
+                        if llm:
+                            try:
+                                if is_overview:
+                                    formatted_prompt = f"You are the scholarly Bible Study Chatbot for 'Vachan Study'. Please provide a comprehensive, scholarly, and structured overview of the Bible book '{book_code}' strictly IN {lang_name}. Cover Historical Background, Key Themes, and Outline. State at the end: 'Note: This response comes from my general knowledge database.'"
+                                else:
+                                    formatted_prompt = f"You are the scholarly Bible Study Chatbot. Please answer the following question strictly IN {lang_name} using your general knowledge: {original_query}"
+                                
+                                llm_result = llm.invoke(formatted_prompt)
+                                answer = llm_result.content.strip()
+                                source = "ai_general"
+                                is_general_knowledge = True
+                            
+                                usage = extract_token_usage(llm_result, formatted_prompt)
+                                tokens_used += usage["total"]
+                            except Exception as e:
+                                print(f"AI Fallback Failed: {e}", flush=True)
+                                raise e
 
-    # Clean up disclaimers so they do not duplicate in bubble text
-    for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "⚠️ *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
-        if d in answer:
-            answer = answer.replace(d, "").strip()
+        # Clean up disclaimers so they do not duplicate in bubble text
+        for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "⚠️ *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
+            if d in answer:
+                answer = answer.replace(d, "").strip()
             
-    if tokens_used > 0:
-        stats = check_and_update_rate_limits()
-        stats["total_tokens_used"] += tokens_used
-        stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
-        save_tokens_data(stats)
+        if tokens_used > 0:
+            stats = check_and_update_rate_limits()
+            stats["total_tokens_used"] += tokens_used
+            stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
+            save_tokens_data(stats)
 
-    excluded_set = {normalize_text(q) for q in (request.history or []) + [original_query]}
+    except Exception as e:
+        err_str = str(e).lower()
+        if "429" in err_str or "503" in err_str or "unavailable" in err_str or "high traffic" in err_str:
+            error_obj = ChatError(status=True, tag="high traffic", message="The AI model is currently experiencing high demand. Please try again later.")
+        elif "exhausted" in err_str or "limit" in err_str or "quota" in err_str:
+            error_obj = ChatError(status=True, tag="exceed data limit", message="Your free tier data quota has been exceeded.")
+        else:
+            error_obj = ChatError(status=True, tag="system error", message=f"An unexpected API error occurred: {e}")
+        print(f"API Chat Error Catch: {e}", flush=True)
+        answer = "⚠️ " + error_obj.message
+        source = "ai_general"
+
     suggested = []
-    for doc in docs:
-        q = doc.metadata.get("question")
-        if q:
-            norm_q = normalize_text(q)
-            if norm_q not in excluded_set and q not in suggested:
-                suggested.append(q)
-                
-    defaults = ["What does the text teach?", "Explain the passage further", "What are the key themes?"]
-    for d in defaults:
-        if len(suggested) >= 3:
-            break
-        if normalize_text(d) not in excluded_set and d not in suggested:
-            suggested.append(d)
+    sq_prompt = f"Based on this answer: '{answer}', generate exactly 3 short follow-up Bible study questions. Output MUST be strictly in the {lang_name} language."
+    if active_provider == "gemini" and GEMINI_KEY:
+        try:
+            from google import genai
+            import json
+            client = genai.Client(api_key=GEMINI_KEY)
+            gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+            sq_res = client.models.generate_content(
+                model=gemini_model_name,
+                contents=sq_prompt,
+                config={
+                    "response_mime_type": "application/json",
+                    "response_schema": SuggestedQuestionsOutput,
+                }
+            )
+            sq_dict = json.loads(sq_res.text)
+            suggested = sq_dict.get("suggested_questions", [])[:3]
+        except Exception as e:
+            print(f"Failed to generate suggested questions (Gemini): {e}", flush=True)
+    elif active_provider == "openai" and OPENAI_KEY:
+        llm = get_llm_instance(active_provider)
+        if llm:
+            try:
+                llm_struct = llm.with_structured_output(SuggestedQuestionsOutput)
+                res = llm_struct.invoke(sq_prompt)
+                suggested = res.suggested_questions[:3]
+            except Exception as e:
+                print(f"Failed to generate suggested questions (OpenAI): {e}", flush=True)
+    
+    if len(suggested) < 3:
+        suggested = ["What does this passage mean?", "How can I apply this?", "Tell me more about the context."]
     # --- MongoDB Persistence ---
     try:
         db = get_database()
@@ -722,7 +754,8 @@ async def chat_endpoint(request: ChatRequest):
         pending_tokens=stats.get("pending_tokens", 0),
         requests_today=stats.get("requests_today", 0),
         requests_this_minute=stats.get("requests_this_minute", 0),
-        source=source
+        source=source,
+        error=error_obj
     )
 
 class QARecord(BaseModel):
