@@ -198,7 +198,7 @@ export default function Workspace({
     setSelectedVerse("");
     
     // 1. Reset suggested questions and highlights immediately
-    setSuggestedQuestions(getInitialQuestionsForBook(bookName));
+    fetchInitialSuggestionsForBook(bookName);
     setActiveHighlights(getInitialHighlightsForBook(bookName));
 
     // 2. Fetch Chat History from MongoDB Backend
@@ -326,6 +326,26 @@ export default function Workspace({
     return () => clearTimeout(timer);
   }, [selectedBook, leftOpen]);
 
+  const fetchInitialSuggestionsForBook = async (bookName: string) => {
+    const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+    const bookCode = getBookCode(bookName);
+    try {
+      const res = await fetch(`${apiURL}/api/dataset/${bookCode}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.data && data.data.length > 0) {
+          const questions = data.data.slice(0, 3).map((item: any) => item.Question);
+          setSuggestedQuestions(questions);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to fetch initial suggestions", err);
+    }
+    // Fallback if fetch fails
+    setSuggestedQuestions(getInitialQuestionsForBook(bookName));
+  };
+
   // Handle book switching
   const handleBookChange = (bookName: string) => {
     setSelectedBook(bookName);
@@ -342,7 +362,7 @@ export default function Workspace({
         timestamp: "Now"
       }
     ]);
-    setSuggestedQuestions(getInitialQuestionsForBook(selectedBook));
+    fetchInitialSuggestionsForBook(selectedBook);
     setActiveHighlights(getInitialHighlightsForBook(selectedBook));
   };
 

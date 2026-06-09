@@ -50,11 +50,21 @@ DATA_DIR = os.path.join(BACKEND_DIR, "data")
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
+from contextlib import asynccontextmanager
+from db.mongodb import connect_to_mongo, close_mongo_connection, get_database
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await connect_to_mongo()
+    yield
+    await close_mongo_connection()
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Vachan Study Bible Study Chatbot RAG API",
     description="FastAPI Backend serving retrieval-augmented scripture insights, optimized for Vercel Serverless Functions.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS Setup to connect seamlessly to React Next.js Frontend
@@ -75,16 +85,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from db.mongodb import connect_to_mongo, close_mongo_connection, get_database
 from datetime import datetime, timezone
-
-@app.on_event("startup")
-async def startup_db_client():
-    await connect_to_mongo()
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    await close_mongo_connection()
 
 # Environment keys and models
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
@@ -405,6 +406,55 @@ def normalize_text(text: str) -> str:
         return ""
     return re.sub(r'[^a-z0-9]', '', text.lower())
 
+def load_dataset_records(book_code: str) -> list:
+    book_code = normalize_book_code(book_code).upper()
+    tsv_filename = f"tq_{book_code}.tsv"
+    tsv_path = os.path.join(DATA_DIR, "en_tq", tsv_filename)
+    
+    if not os.path.exists(tsv_path):
+        csv_filename = f"tq_{book_code}.csv"
+        csv_path = os.path.join(STATIC_DATA_DIR, csv_filename)
+        if os.path.exists(csv_path):
+            tsv_path = csv_path
+        else:
+            tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
+            
+    if not os.path.exists(tsv_path):
+        return []
+        
+    try:
+        is_tsv = tsv_path.endswith('.tsv')
+        records = []
+        with open(tsv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter='\t' if is_tsv else ',')
+            
+            normalized_fieldnames = []
+            for field in (reader.fieldnames or []):
+                field_clean = field.strip()
+                if field_clean.lower() == 'reference': field_clean = 'Reference'
+                elif field_clean.lower() == 'question': field_clean = 'Question'
+                elif field_clean.lower() == 'response': field_clean = 'Response'
+                normalized_fieldnames.append(field_clean)
+            reader.fieldnames = normalized_fieldnames
+            
+            for row in reader:
+                records.append({
+                    "Reference": str(row.get("Reference") or "1:1").strip() or "1:1",
+                    "Question": str(row.get("Question") or "").strip(),
+                    "Response": str(row.get("Response") or "").strip()
+                })
+        return records
+    except Exception as e:
+        print(f"Error loading dataset records: {e}")
+        return []
+
+def parse_reference(ref_str: str) -> tuple:
+    match = re.match(r'(\d+)\s*:\s*(\d+)', ref_str)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    return 1, 1
+
+
 OFFLINE_OVERVIEWS = {
     "MAT": "📖 **Overview of Matthew:** The Gospel of Matthew serves as a legal and theological bridge between the Old and New Testaments. It emphasizes Jesus as the promised Messiah, tracing His royal lineage back to Abraham and David, and highlights the Kingdom of Heaven through key teachings like the Sermon on the Mount.",
     "GEN": "📖 **Overview of Genesis:** Genesis is the book of beginnings. It documents the creation of the universe, the fall of humanity, and the covenant origin of God's chosen people through Abraham, Isaac, Jacob, and Joseph.",
@@ -523,38 +573,55 @@ async def chat_endpoint(request: ChatRequest):
                 print(f"RAG System: Error in get_docs ({e}).", flush=True)
                 return rmode, []
 
-        # --- Step 1: Native Retrieval ---
-        retriever_mode, docs_and_scores = get_docs(original_query, lang_code)
-        print(f"DEBUG - RETRIEVED DOCS COUNT: {len(docs_and_scores)}", flush=True)
-        print(f"DEBUG - RAW DOCS: {docs_and_scores}", flush=True)
-        tier_matched = 0
+        # --- Step 0: Direct Dataset Exact Match ---
+        records = load_dataset_records(book_code)
         norm_query = normalize_text(original_query)
-    
-        if retriever_mode != "not_found" and not is_overview and docs_and_scores:
-            for doc, score in docs_and_scores:
-                doc_q = normalize_text(doc.metadata.get("question", ""))
-                if norm_query and doc_q and (norm_query == doc_q or norm_query in doc_q or doc_q in norm_query):
-                    answer = doc.metadata.get("response", "")
-                    top_ref = doc.metadata.get("reference", "1:1")
-                    tier_matched = 1
-                    source = "dataset_native"
-                    break
-            if tier_matched == 0:
-                top_doc, top_score = docs_and_scores[0]
-                is_semantic_match = False
-                if retriever_mode == "semantic" and top_score > 6:
-                    is_semantic_match = True
-                elif retriever_mode != "semantic" and top_score < 0.35: # Strict threshold filter
-                    is_semantic_match = True
-                
-                if is_semantic_match:
-                    answer = top_doc.metadata.get("response", "")
-                    top_ref = top_doc.metadata.get("reference", "1:1")
-                    tier_matched = 2
-                    source = "dataset_native"
-                
-            if tier_matched > 0:
-                docs = [d for d, s in docs_and_scores]
+        exact_match = None
+        for r in records:
+            if normalize_text(r["Question"]) == norm_query:
+                exact_match = r
+                break
+        
+        if exact_match:
+            print(f"Exact dataset match found for query: '{original_query}'", flush=True)
+            answer = exact_match["Response"]
+            top_ref = exact_match["Reference"]
+            source = "dataset_native"
+            tier_matched = 1
+        else:
+            tier_matched = 0
+
+        # --- Step 1: Native Retrieval ---
+        if tier_matched == 0:
+            retriever_mode, docs_and_scores = get_docs(original_query, lang_code)
+            print(f"DEBUG - RETRIEVED DOCS COUNT: {len(docs_and_scores)}", flush=True)
+            print(f"DEBUG - RAW DOCS: {docs_and_scores}", flush=True)
+        
+            if retriever_mode != "not_found" and not is_overview and docs_and_scores:
+                for doc, score in docs_and_scores:
+                    doc_q = normalize_text(doc.metadata.get("question", ""))
+                    if norm_query and doc_q and (norm_query == doc_q or norm_query in doc_q or doc_q in norm_query):
+                        answer = doc.metadata.get("response", "")
+                        top_ref = doc.metadata.get("reference", "1:1")
+                        tier_matched = 1
+                        source = "dataset_native"
+                        break
+                if tier_matched == 0:
+                    top_doc, top_score = docs_and_scores[0]
+                    is_semantic_match = False
+                    if retriever_mode == "semantic" and top_score > 6:
+                        is_semantic_match = True
+                    elif retriever_mode != "semantic" and top_score < 0.35: # Strict threshold filter
+                        is_semantic_match = True
+                    
+                    if is_semantic_match:
+                        answer = top_doc.metadata.get("response", "")
+                        top_ref = top_doc.metadata.get("reference", "1:1")
+                        tier_matched = 2
+                        source = "dataset_native"
+                    
+                if tier_matched > 0:
+                    docs = [d for d, s in docs_and_scores]
 
         # --- Step 2: English Translation Fallback ---
         if tier_matched == 0 and not is_overview and lang_code != "en" and not rate_limited and tokens_data["pending_tokens"] > 0:
@@ -665,35 +732,49 @@ async def chat_endpoint(request: ChatRequest):
         source = "ai_general"
 
     suggested = []
-    sq_prompt = f"Based on this answer: '{answer}', generate exactly 3 short follow-up Bible study questions. Output MUST be strictly in the {lang_name} language."
-    if active_provider == "gemini" and GEMINI_KEY:
-        try:
-            from google import genai
-            import json
-            client = genai.Client(api_key=GEMINI_KEY)
-            gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-            sq_res = client.models.generate_content(
-                model=gemini_model_name,
-                contents=sq_prompt,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_schema": SuggestedQuestionsOutput,
-                }
-            )
-            sq_dict = json.loads(sq_res.text)
-            suggested = sq_dict.get("suggested_questions", [])[:3]
-        except Exception as e:
-            print(f"Failed to generate suggested questions (Gemini): {e}", flush=True)
-    elif active_provider == "openai" and OPENAI_KEY:
-        llm = get_llm_instance(active_provider)
-        if llm:
-            try:
-                llm_struct = llm.with_structured_output(SuggestedQuestionsOutput)
-                res = llm_struct.invoke(sq_prompt)
-                suggested = res.suggested_questions[:3]
-            except Exception as e:
-                print(f"Failed to generate suggested questions (OpenAI): {e}", flush=True)
-    
+    if records:
+        curr_chapter, curr_verse = parse_reference(top_ref)
+        
+        # Filter out the current query to avoid suggesting the question we just asked
+        norm_query = normalize_text(original_query)
+        valid_records = [
+            r for r in records 
+            if normalize_text(r["Question"]) != norm_query and r["Question"].strip()
+        ]
+        
+        if valid_records:
+            # Try to get questions from the same chapter first
+            chapter_records = []
+            other_records = []
+            for r in valid_records:
+                ch, v = parse_reference(r["Reference"])
+                if ch == curr_chapter:
+                    chapter_records.append((r, ch, v))
+                else:
+                    other_records.append((r, ch, v))
+            
+            # If we have chapter records, sort them by distance to current verse.
+            # We prefer verses at or after current verse, then before.
+            if chapter_records:
+                chapter_records.sort(key=lambda x: (
+                    0 if x[2] >= curr_verse else 1, # Prefer current or later verses
+                    abs(x[2] - curr_verse)          # Closer distance first
+                ))
+                suggested = [x[0]["Question"] for x in chapter_records[:3]]
+            
+            # If we still need more suggestions, take from other chapters, sorted by chapter proximity
+            if len(suggested) < 3:
+                other_records.sort(key=lambda x: (
+                    0 if x[1] >= curr_chapter else 1, # Prefer later chapters
+                    abs(x[1] - curr_chapter),         # Closer chapter distance first
+                    x[2]                              # Earlier verses in that chapter
+                ))
+                for x in other_records:
+                    if len(suggested) >= 3:
+                        break
+                    if x[0]["Question"] not in suggested:
+                        suggested.append(x[0]["Question"])
+
     if len(suggested) < 3:
         suggested = ["What does this passage mean?", "How can I apply this?", "Tell me more about the context."]
     # --- MongoDB Persistence ---
