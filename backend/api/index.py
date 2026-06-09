@@ -207,9 +207,9 @@ def get_retriever_for_book(book_code: str, lang_code: str = "en") -> tuple:
     if active_provider and embeddings and index_subdir:
         try:
             from langchain_mongodb import MongoDBAtlasVectorSearch
-            from db.mongodb import get_database
+            from db.mongodb import get_sync_database
             
-            db = get_database()
+            db = get_sync_database()
             if db is not None:
                 collection = db["vector_embeddings"]
                 print(f"RAG System: Connecting to MongoDB Atlas Vector Search ({active_provider}) for '{book_code}'...", flush=True)

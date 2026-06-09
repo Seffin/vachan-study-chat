@@ -1,5 +1,6 @@
 import os
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import MongoClient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -10,6 +11,8 @@ DB_NAME = "vachan_study"
 class MongoDB:
     client: AsyncIOMotorClient = None
     db = None
+    sync_client: MongoClient = None
+    sync_db = None
 
 db_instance = MongoDB()
 
@@ -21,14 +24,24 @@ async def connect_to_mongo():
     print(f"MongoDB: Connecting to database...")
     db_instance.client = AsyncIOMotorClient(MONGO_URI)
     db_instance.db = db_instance.client[DB_NAME]
+    
+    db_instance.sync_client = MongoClient(MONGO_URI)
+    db_instance.sync_db = db_instance.sync_client[DB_NAME]
+    
     print("MongoDB: Connected.")
 
 async def close_mongo_connection():
     if db_instance.client:
         print("MongoDB: Closing connection...")
         db_instance.client.close()
+    if db_instance.sync_client:
+        db_instance.sync_client.close()
         print("MongoDB: Connection closed.")
 
 def get_database():
     """Dependency injection to get the MongoDB database instance in FastAPI routes."""
     return db_instance.db
+
+def get_sync_database():
+    """Dependency injection to get the synchronous MongoDB database instance."""
+    return db_instance.sync_db
