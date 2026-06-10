@@ -40,8 +40,15 @@ async def close_mongo_connection():
 
 def get_database():
     """Dependency injection to get the MongoDB database instance in FastAPI routes."""
+    if db_instance.db is None and MONGO_URI:
+        print("MongoDB: Lazy connecting to database (Serverless mode)...")
+        db_instance.client = AsyncIOMotorClient(MONGO_URI)
+        db_instance.db = db_instance.client[DB_NAME]
     return db_instance.db
 
 def get_sync_database():
     """Dependency injection to get the synchronous MongoDB database instance."""
+    if db_instance.sync_db is None and MONGO_URI:
+        db_instance.sync_client = MongoClient(MONGO_URI)
+        db_instance.sync_db = db_instance.sync_client[DB_NAME]
     return db_instance.sync_db
