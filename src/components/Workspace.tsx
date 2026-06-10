@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { 
   BookOpen, Plus, Settings, HelpCircle, MoreVertical, 
-  Send, Mic, ChevronLeft, Menu, Eye, Sparkles, Check
+  Send, Mic, ChevronLeft, Menu, Eye, Sparkles, Check, Trash2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -366,6 +366,35 @@ export default function Workspace({
     setActiveHighlights(getInitialHighlightsForBook(selectedBook));
   };
 
+  // Handle Remove Chat from database
+  const handleRemoveChat = async () => {
+    if (!confirm(`Are you sure you want to permanently delete your chat history for ${selectedBook} from the database?`)) {
+      return;
+    }
+    
+    const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+    const bookCode = getBookCode(selectedBook);
+    
+    try {
+      console.log(`Deleting chat history for ${bookCode} from ${apiURL}/api/history/${bookCode}`);
+      const res = await fetch(`${apiURL}/api/history/${bookCode}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        console.log("Chat history deleted successfully from database.");
+      } else {
+        console.warn("Delete request failed on database.");
+      }
+    } catch (err) {
+      console.warn("Failed to contact API for deleting chat history", err);
+    }
+    
+    // Reset local state to initial welcome view
+    setMessages([getInitialMessageForBook(selectedBook)]);
+    fetchInitialSuggestionsForBook(selectedBook);
+    setActiveHighlights(getInitialHighlightsForBook(selectedBook));
+  };
+
   // 🔌 3. Robust async handleSendMessage connecting Frontend UI to live RAG API
   const handleSendMessage = async (text: string) => {
     if (!text.trim()) return;
@@ -689,6 +718,13 @@ export default function Workspace({
           </div>
 
           <div className="flex items-center gap-2">
+            <button 
+              onClick={handleRemoveChat}
+              className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-stone-500 hover:text-red-650 dark:text-zinc-400 dark:hover:text-red-500 cursor-pointer custom-transition"
+              title="Delete Chat History"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
             <button 
               onClick={() => setRightOpen(true)}
               className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 lg:hidden text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-zinc-100 cursor-pointer"

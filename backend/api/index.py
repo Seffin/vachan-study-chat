@@ -1087,6 +1087,27 @@ async def get_scripture(book: str, chapter: int):
                 parsed_verses = parse_html_to_verses(html_content)
                 if parsed_verses:
                     print(f"Bible API Dynamic Fetch Success: Loaded {len(parsed_verses)} verses dynamically!")
+                    
+                    # Store in MongoDB for future fast reads
+                    try:
+                        db = get_database()
+                        if db is not None:
+                            collection = db["scripture_text"]
+                            await collection.update_one(
+                                {"book": book_code, "chapter": chapter},
+                                {"$set": {
+                                    "book": book_code,
+                                    "chapter": chapter,
+                                    "reference": reference,
+                                    "verses": parsed_verses,
+                                    "cached_at": datetime.now(timezone.utc)
+                                }},
+                                upsert=True
+                            )
+                            print(f"Scripture cached in MongoDB for {book_code} {chapter}", flush=True)
+                    except Exception as cache_err:
+                        print(f"Failed to cache scripture in MongoDB: {cache_err}", flush=True)
+                        
                     return {
                         "book": book_code,
                         "chapter": chapter,
@@ -1142,6 +1163,28 @@ async def get_history(book: str):
     except Exception as e:
         print(f"MongoDB Fetch History Error: {e}")
         return {"history": []}
+
+@app.delete("/api/history/{book}")
+async def delete_history(book: str):
+    """Deletes the chat history for a specific book."""
+    try:
+        db = get_database()
+        if db is None:
+            raise HTTPException(status_code=500, detail="Database connection not established.")
+            
+        book_code = normalize_book_code(book)
+        user_id = "default_user"
+        session_id = f"{user_id}_{book_code}"
+        
+        result = await db.chat_sessions.delete_one({"session_id": session_id})
+        
+        if result.deleted_count > 0:
+            return {"status": "success", "message": f"Chat history for {book} deleted successfully."}
+        else:
+            return {"status": "success", "message": "No chat history found to delete."}
+    except Exception as e:
+        print(f"MongoDB Delete History Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete chat history: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
