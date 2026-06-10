@@ -2,6 +2,7 @@ import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import MongoClient
 from dotenv import load_dotenv
+import certifi
 
 load_dotenv()
 
@@ -22,10 +23,10 @@ async def connect_to_mongo():
         return
         
     print(f"MongoDB: Connecting to database...")
-    db_instance.client = AsyncIOMotorClient(MONGO_URI)
+    db_instance.client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where())
     db_instance.db = db_instance.client[DB_NAME]
     
-    db_instance.sync_client = MongoClient(MONGO_URI)
+    db_instance.sync_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
     db_instance.sync_db = db_instance.sync_client[DB_NAME]
     
     print("MongoDB: Connected.")
@@ -42,13 +43,14 @@ def get_database():
     """Dependency injection to get the MongoDB database instance in FastAPI routes."""
     if db_instance.db is None and MONGO_URI:
         print("MongoDB: Lazy connecting to database (Serverless mode)...")
-        db_instance.client = AsyncIOMotorClient(MONGO_URI)
+        # Use certifi for Vercel to avoid SSL: CERTIFICATE_VERIFY_FAILED
+        db_instance.client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where())
         db_instance.db = db_instance.client[DB_NAME]
     return db_instance.db
 
 def get_sync_database():
     """Dependency injection to get the synchronous MongoDB database instance."""
     if db_instance.sync_db is None and MONGO_URI:
-        db_instance.sync_client = MongoClient(MONGO_URI)
+        db_instance.sync_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
         db_instance.sync_db = db_instance.sync_client[DB_NAME]
     return db_instance.sync_db
