@@ -479,6 +479,94 @@ def is_overview_query(query: str) -> bool:
                 return True
     return False
 
+# =====================================================================
+# 🧠 LLM-POWERED SEMANTIC MATCHING ENGINE
+# =====================================================================
+
+def llm_semantic_match(
+    user_query: str,
+    candidates: List[Dict[str, str]],
+    provider: str,
+    lang_name: str = "English"
+) -> Optional[Dict[str, str]]:
+    """Uses an LLM to judge semantic equivalence between the user's question
+    and a batch of candidate dataset questions. Returns the matched candidate's
+    native response/reference directly from the dataset (no AI rephrasing),
+    or None if no semantic match exists.
+    
+    Handles: active/passive voice, synonyms, cross-language meaning, word reordering.
+    """
+    if not candidates or not user_query.strip():
+        return None
+    
+    # Build the numbered candidate list for the prompt
+    candidate_lines = []
+    for i, c in enumerate(candidates, 1):
+        candidate_lines.append(f"{i}. {c['question']}")
+    candidates_block = "\n".join(candidate_lines)
+    
+    semantic_prompt = f"""You are a semantic matching engine. Compare the USER QUESTION against each CANDIDATE question below.
+Two questions are SEMANTICALLY EQUIVALENT if they ask about the same thing, even if:
+- One is active voice, the other passive (e.g., "Why did Joseph divorce Mary?" ≡ "Why was Mary divorced by Joseph?")
+- One is in a different language but means the same thing
+- Word order, synonyms, or phrasing differs but core meaning is identical
+- One question is more specific or detailed than the other but covers the same topic
+
+IMPORTANT: Only match if the core MEANING is truly equivalent. Do NOT match questions that are merely about the same topic but ask different things.
+
+USER QUESTION: {user_query}
+
+CANDIDATES:
+{candidates_block}
+
+Respond with ONLY the number (1, 2, 3...) of the best semantic match, or "NONE" if no candidate is semantically equivalent. Do not explain."""
+    
+    try:
+        if provider == "gemini" and GEMINI_KEY:
+            from google import genai
+            client = genai.Client(api_key=GEMINI_KEY)
+            gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+            response = client.models.generate_content(
+                model=gemini_model_name,
+                contents=semantic_prompt,
+            )
+            result_text = response.text.strip()
+        elif provider == "openai" and OPENAI_KEY:
+            llm = get_llm_instance("openai")
+            if not llm:
+                return None
+            llm_result = llm.invoke(semantic_prompt)
+            result_text = llm_result.content.strip()
+        else:
+            return None
+        
+        # Parse the LLM response — expect a number or "NONE"
+        result_text = result_text.strip().strip('.')
+        if result_text.upper() == "NONE":
+            print(f"Semantic Match: LLM returned NONE — no semantic equivalent found.", flush=True)
+            return None
+        
+        # Try to extract a number from the response
+        match_num = re.search(r'(\d+)', result_text)
+        if match_num:
+            idx = int(match_num.group(1)) - 1  # Convert to 0-indexed
+            if 0 <= idx < len(candidates):
+                matched = candidates[idx]
+                print(f"Semantic Match: LLM matched candidate #{idx+1}: '{matched['question']}'", flush=True)
+                return matched
+        
+        print(f"Semantic Match: LLM response unparseable: '{result_text}'", flush=True)
+        return None
+        
+    except Exception as e:
+        print(f"Semantic Match Error: {e}", flush=True)
+        return None
+
+def estimate_semantic_match_tokens(user_query: str, candidates: List[Dict[str, str]]) -> int:
+    """Estimate the token cost of a semantic match call for rate limiting decisions."""
+    prompt_chars = 500 + len(user_query) + sum(len(c.get('question', '')) for c in candidates)
+    return max(1, int(prompt_chars / 4)) + 10  # +10 for the short response
+
 class ChatRequest(BaseModel):
     book: str
     message: str
@@ -606,6 +694,31 @@ async def chat_endpoint(request: ChatRequest):
                         tier_matched = 1
                         source = "dataset_native"
                         break
+                # --- Step 1.5: LLM Semantic Match ---
+                # If substring check failed, use LLM to judge semantic equivalence
+                # between the user's question and the top vector search candidates.
+                if tier_matched == 0 and active_provider != "semantic" and not rate_limited and tokens_data["pending_tokens"] > 0:
+                    sem_candidates = []
+                    for doc, score in docs_and_scores[:5]:
+                        sem_candidates.append({
+                            "question": doc.metadata.get("question", ""),
+                            "response": doc.metadata.get("response", ""),
+                            "reference": doc.metadata.get("reference", "1:1")
+                        })
+                    
+                    if sem_candidates:
+                        print(f"Tier 1.5: Running LLM Semantic Match against {len(sem_candidates)} candidates...", flush=True)
+                        sem_match = llm_semantic_match(original_query, sem_candidates, active_provider, lang_name)
+                        tokens_used += estimate_semantic_match_tokens(original_query, sem_candidates)
+                        
+                        if sem_match:
+                            answer = sem_match["response"]
+                            top_ref = sem_match["reference"]
+                            tier_matched = 2
+                            source = "dataset_semantic"
+                            print(f"Tier 1.5: Semantic match found! Returning dataset answer for ref {top_ref}", flush=True)
+                
+                # Original score-threshold check (only if LLM semantic match also missed)
                 if tier_matched == 0:
                     top_doc, top_score = docs_and_scores[0]
                     is_semantic_match = False
@@ -632,21 +745,50 @@ async def chat_endpoint(request: ChatRequest):
                     trans_prompt = f"Translate the following text to English, output ONLY the translation:\\n{original_query}"
                     trans_res = llm.invoke(trans_prompt)
                     translated_query = trans_res.content.strip()
+                    print(f"Translation Fallback: Translated query to English: '{translated_query}'", flush=True)
                 
                     en_rmode, en_docs_and_scores = get_docs(translated_query, "en")
                     if en_rmode != "not_found" and en_docs_and_scores:
                         docs = [d for d, s in en_docs_and_scores]
-                        context_str = "\\n---\\n".join([d.page_content for d in docs[:4]])
-                    
-                        formatted_prompt = prompt_tmpl.format(context=context_str, question=original_query, user_language=lang_name)
-                        llm_result = llm.invoke(formatted_prompt)
-                        answer = llm_result.content.strip()
-                        top_ref = docs[0].metadata.get("reference", "1:1")
-                        source = "translated_from_en"
-                        tier_matched = 3
-                    
-                        usage = extract_token_usage(llm_result, formatted_prompt)
-                        tokens_used += usage["total"]
+                        
+                        # Step 2a: Try LLM Semantic Match on English candidates FIRST
+                        # If the translated query semantically matches an English dataset question,
+                        # return the dataset's native answer translated to the user's language.
+                        en_sem_candidates = []
+                        for doc in docs[:5]:
+                            en_sem_candidates.append({
+                                "question": doc.metadata.get("question", ""),
+                                "response": doc.metadata.get("response", ""),
+                                "reference": doc.metadata.get("reference", "1:1")
+                            })
+                        
+                        sem_match = llm_semantic_match(translated_query, en_sem_candidates, active_provider, "English")
+                        tokens_used += estimate_semantic_match_tokens(translated_query, en_sem_candidates)
+                        
+                        if sem_match:
+                            # Semantic match found in English dataset — translate the answer to user's language
+                            print(f"Translation Fallback: Semantic match found in English dataset! Translating answer to {lang_name}...", flush=True)
+                            translate_answer_prompt = f"Translate the following text to {lang_name}. Output ONLY the translation, nothing else:\n\n{sem_match['response']}"
+                            translate_res = llm.invoke(translate_answer_prompt)
+                            answer = translate_res.content.strip()
+                            top_ref = sem_match["reference"]
+                            source = "dataset_semantic"
+                            tier_matched = 3
+                            
+                            usage = extract_token_usage(translate_res, translate_answer_prompt)
+                            tokens_used += usage["total"]
+                        else:
+                            # Step 2b: No semantic match — fall back to context-based LLM rephrasing
+                            context_str = "\\n---\\n".join([d.page_content for d in docs[:4]])
+                            formatted_prompt = prompt_tmpl.format(context=context_str, question=original_query, user_language=lang_name)
+                            llm_result = llm.invoke(formatted_prompt)
+                            answer = llm_result.content.strip()
+                            top_ref = docs[0].metadata.get("reference", "1:1")
+                            source = "translated_from_en"
+                            tier_matched = 3
+                        
+                            usage = extract_token_usage(llm_result, formatted_prompt)
+                            tokens_used += usage["total"]
                 except Exception as e:
                     print(f"Translation Fallback Failed: {e}", flush=True)
 
