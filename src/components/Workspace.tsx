@@ -12,6 +12,15 @@ import {
   booksList, matthew1Content, defaultAIResponse, Section 
 } from "../data/mockBible";
 
+// Helper to resolve the correct API URL (relative in Vercel production, localhost in development)
+const getApiUrl = () => {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window !== "undefined" && window.location.hostname && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    return "";
+  }
+  return "http://127.0.0.1:8000";
+};
+
 interface WorkspaceProps {
   selectedBook: string;
   setSelectedBook: (bookName: string) => void;
@@ -203,7 +212,7 @@ export default function Workspace({
 
     // 2. Fetch Chat History from MongoDB Backend
     const fetchHistory = async () => {
-      const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const apiURL = getApiUrl();
       const bookCode = getBookCode(bookName);
       try {
         console.log(`Fetching history for ${bookCode} from ${apiURL}/api/history/${bookCode}`);
@@ -235,7 +244,7 @@ export default function Workspace({
 
     // Fetch dynamic book scripture if available on API
     const fetchScripture = async () => {
-      const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const apiURL = getApiUrl();
       try {
         const bookCode = getBookCode(bookName);
         console.log(`Scripture Fetch: Connecting to ${apiURL}/api/scripture/${bookCode}/${chapterNum}...`);
@@ -327,7 +336,7 @@ export default function Workspace({
   }, [selectedBook, leftOpen]);
 
   const fetchInitialSuggestionsForBook = async (bookName: string) => {
-    const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+    const apiURL = getApiUrl();
     const bookCode = getBookCode(bookName);
     try {
       const res = await fetch(`${apiURL}/api/dataset/${bookCode}`);
@@ -372,7 +381,7 @@ export default function Workspace({
       return;
     }
     
-    const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+    const apiURL = getApiUrl();
     const bookCode = getBookCode(selectedBook);
     
     try {
@@ -410,7 +419,7 @@ export default function Workspace({
     setInputValue("");
     setIsLoading(true);
 
-    const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+    const apiURL = getApiUrl();
 
     try {
       console.log(`API Chat Request: Sending query to ${apiURL}/api/chat...`);
