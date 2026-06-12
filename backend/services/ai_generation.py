@@ -49,9 +49,13 @@ def get_active_provider() -> str:
 
 
 def _is_rate_limit_error(e: Exception) -> bool:
-    """Checks if an exception is a rate-limit (429) or quota-exhausted error."""
+    """Checks if an exception is a rate-limit (429), quota-exhausted, invalid key (400), or server error (503)."""
     err_str = str(e).lower()
-    return "429" in err_str or "resource_exhausted" in err_str or "quota" in err_str
+    return any(keyword in err_str for keyword in [
+        "429", "resource_exhausted", "quota", 
+        "400", "invalid_argument", "api key not found", "api_key_invalid",
+        "503", "unavailable"
+    ])
 
 
 async def generate_ai_answer(
