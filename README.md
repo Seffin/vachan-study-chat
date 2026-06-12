@@ -32,6 +32,17 @@ A highly advanced, full-stack, multilingual AI application designed to provide s
 ### 🏗️ Offline / Zero-Cost Fallback
 - **Local RAG:** If no API keys are provided or all keys fail, the system falls back to a completely offline, zero-cost semantic overlap search using local CSV datasets, ensuring the app never truly goes down.
 
+### 🎙️ Voice & Audio Experience
+- **Push-to-Talk Microphone Flow:** The workspace includes a push-to-talk microphone button that captures audio input.
+- **Animated Recording Feedback:** Visual feedback animates during recording to show the user the system is listening.
+- **Voice-First Prompts:** Voice-first prompts make the study experience feel more conversational and immersive.
+
+---
+
+### Architecture at a Glance
+
+Vachan Study is a full-stack scripture study experience built around a Next.js frontend and a FastAPI backend. The frontend provides a book navigator, live chat workspace, scripture reader, and voice-first interaction layer, while the backend streams responses over Server-Sent Events, detects user language, runs hybrid retrieval, and returns context-aware answers with scripture references. The system is designed to stay useful even when AI providers are unavailable by falling back to local datasets, translation steps, or a lightweight offline simulator.
+
 ---
 
 ## 🛠️ Technology Stack
