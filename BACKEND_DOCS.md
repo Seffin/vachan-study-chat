@@ -68,10 +68,22 @@ Fetches or purges the user's conversation history for the current session from t
 }
 ```
 
+### `api_keys` (Stateless Key Rotation)
+```json
+{
+  "_id": "ObjectId",
+  "provider": "gemini",
+  "token": "AIzaSy...",
+  "cooldown_until": 1718042400.0,
+  "created_at": "2026-06-12T14:00:00Z"
+}
+```
+
 ---
 
 ## 🚀 Deployment (Vercel)
 
 The backend is deployed automatically via Vercel using the `vercel.json` manifest.
-- **Environment Variables:** You MUST configure your `GEMINI_API_KEY` and `MONGODB_URI` in the Vercel Dashboard.
+- **Environment Variables:** You MUST configure your `MONGODB_URI` in the Vercel Dashboard.
+- **Dynamic API Keys:** `GEMINI_API_KEYS` are no longer managed via Vercel Environment Variables. Instead, administrators run `python backend/scripts/add_key.py` locally to push new keys into MongoDB. Vercel picks them up dynamically in less than a millisecond, completely bypassing the need for server redeployments!
 - **Limitations:** Vercel functions are read-only. We no longer write to the filesystem (e.g., legacy FAISS `static_data/vectorstores`), everything is handled entirely in memory (`io.BytesIO`) or piped directly to MongoDB Atlas.

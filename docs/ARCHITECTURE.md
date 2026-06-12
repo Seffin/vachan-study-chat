@@ -33,6 +33,7 @@ The legacy local FAISS vector indices have been completely replaced with **Mongo
   - Schema includes: `book`, `chapter`, `verse`, `question`, `answer`, `lang_code` (`en`, `ml`, `hi`), and `embedding`.
   - The `embedding` field contains exactly 768-dimension vectors (truncated from Gemini's native 3072 dimensions) using Matryoshka Representation Learning to save 75% storage space.
 - **`chat_history`**: Persistent user conversation logs, organized by `session_id` and `book`.
+- **`api_keys`**: Stateless Gemini token tracking. Synchronizes rate-limit `cooldown_until` timestamps across all parallel Vercel instances to prevent overlapping crashes.
 
 **Search Indices:**
 - `vector_index`: Performs semantic similarity search on the `embedding` field.
@@ -89,15 +90,18 @@ Logos Bible Study Chatbot/
     ├── core/
     │   └── config.py               # Environment & system configurations
     ├── data/
-    │   └── tokens.json             # Key rotator state management
+    │   └── tokens.json             # Key rotator state management (Deprecated by api_keys)
+    ├── db/
+    │   ├── mongodb.py              # MongoDB Atlas connection manager
+    │   └── repositories.py         # Data access classes (ChatSession, KeyRepository)
     ├── models/
     │   └── chat.py                 # Pydantic schemas
     ├── scripts/                    # Maintenance scripts
-    │   ├── migrate_from_faiss_to_mongodb.py
-    │   └── drop_qa.py
+    │   ├── add_key.py              # CLI Utility to inject new Gemini keys into MongoDB
+    │   └── migrate_from_faiss_to_mongodb.py
     └── services/                   # Business logic
         ├── ai_generation.py        # Gemini interaction & transcriptions
-        ├── db.py                   # MongoDB driver & connection pools
+        ├── key_rotation.py         # MongoDB-backed stateless API key rotation
         ├── embedding.py            # Vector embeddings (768d Matryoshka)
         ├── rag.py                  # Hybrid Search & Re-ranking pipeline
         └── translation.py          # Multilingual text utilities
