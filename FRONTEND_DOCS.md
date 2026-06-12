@@ -2,6 +2,10 @@
 
 Welcome to the frontend engineering documentation for the **Vachan Study Bible Study Chatbot**. This document outlines the Next.js React application, detailing how states are structured, how the UI binds to those states, and how it seamlessly connects to the live FastAPI backend or heals itself using local simulation logic when offline.
 
+## Current Architecture Alignment
+
+The frontend is a Next.js and TypeScript experience that combines three core interaction surfaces: a scripture navigator, a chat workspace, and a scripture reading pane. The main workspace component manages conversation state, suggested follow-up questions, active verse highlights, and the current book and chapter selection. Its chat flow is built around a streaming request to the backend, and the UI updates in real time as status events arrive. The experience is also designed to feel voice-first, with a microphone button that can drive the same chat flow as typed input.
+
 ---
 
 ## 📂 Frontend Directory Structure

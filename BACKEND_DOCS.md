@@ -2,6 +2,10 @@
 
 Welcome to the backend engineering documentation for the **Vachan Study Bible Study Chatbot**. This document describes the design, data pipelines, Retrieval-Augmented Generation (RAG) infrastructure, and API configurations of our Python FastAPI backend.
 
+## Current Architecture Alignment
+
+The current backend is a FastAPI application centered on the chat endpoint in the backend API module. The main request flow begins when the frontend sends a book code, user message, and recent chat history to the streaming chat endpoint. The backend detects the user language, generates an embedding for the query, runs hybrid retrieval over the available dataset, reranks the results, and decides whether to return a high-confidence dataset answer or continue through translation and AI-generation fallback paths. The response is streamed back to the frontend using Server-Sent Events so the UI can display live status updates while the answer is being assembled.
+
 ## **Crucial Note:** This backend is explicitly optimized for **Vercel Serverless Functions**. Because Vercel utilizes a strictly read-only file system, all dynamic data acquisition (Git cloning, ZIP downloading) and FAISS vector compilation _must_ occur locally before deployment.
 
 ## 📁 Backend Directory Structure
