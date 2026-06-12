@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { 
   BookOpen, Plus, Settings, HelpCircle, MoreVertical, 
-  Send, Mic, ChevronLeft, Menu, Eye, Sparkles, Check, Trash2
+  Send, Mic, ChevronLeft, Menu, Eye, Sparkles, Check, Trash2, Volume2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -20,6 +20,24 @@ const getApiUrl = () => {
   }
   return "http://127.0.0.1:8000";
 };
+
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: any) => void) | null;
+  onerror: ((event: any) => void) | null;
+  onend: (() => void) | null;
+};
+
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => SpeechRecognitionLike;
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  }
+}
 
 interface WorkspaceProps {
   selectedBook: string;
@@ -191,8 +209,33 @@ export default function Workspace({
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Audio recording simulation state
+  // Voice input/output state
   const [isRecording, setIsRecording] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const getVoiceErrorMessage = (error: string | undefined) => {
+    switch (error) {
+      case "not-allowed":
+      case "service-not-allowed":
+        return "Microphone access was blocked. Please allow microphone permission for this site, then try again.";
+      case "not-supported":
+        return "Speech recognition is not supported in this browser. Please try Chrome or Edge.";
+      case "audio-capture":
+        return "No microphone was detected. Please connect a microphone and try again.";
+      case "network":
+        return "Voice recognition could not reach the speech service. Please check your connection and try again.";
+      case "no-speech":
+        return "No speech was detected. Please try again and speak more clearly.";
+      case "aborted":
+        return "Voice input was canceled. Please try again if you want to continue.";
+      case "language-not-supported":
+        return "The selected language is not supported in this browser. Please use English and try again.";
+      default:
+        return "Voice input is unavailable right now. Please refresh the page and try again with Chrome or Edge.";
+    }
+  };
 
   // Live SSE status text shown in the loading bubble
   const [loadingStatus, setLoadingStatus] = useState("");
@@ -202,6 +245,8 @@ export default function Workspace({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
+
+
 
   // 1. Reset Workspace and Fetch Chat History on Book Switch
   useEffect(() => {
@@ -407,6 +452,24 @@ export default function Workspace({
     setActiveHighlights(getInitialHighlightsForBook(selectedBook));
   };
 
+  const speakText = (text: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+
+    const cleanText = text
+      .replace(/[#>*_`]/g, "")
+      .replace(/\[(.*?)\]\(.*?\)/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!cleanText) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = "en-US";
+    utterance.rate = 0.95;
+    window.speechSynthesis.speak(utterance);
+  };
+
   // 🔌 3. Robust async handleSendMessage connecting Frontend UI to live RAG API (SSE Streaming)
   const handleSendMessage = async (text: string) => {
     if (!text.trim()) return;
@@ -519,6 +582,7 @@ export default function Workspace({
           source: finalData.source as string
         };
         setMessages(prev => [...prev, newAIMessage]);
+        speakText(newAIMessage.text);
 
         // Update suggested questions chips
         if (finalData.suggested_questions) {
@@ -552,6 +616,7 @@ export default function Workspace({
         };
         
         setMessages(prev => [...prev, newAIMessage]);
+        speakText(newAIMessage.text);
         setSuggestedQuestions(responseData.suggestions);
         
         if (responseData.verseReferences && responseData.verseReferences.length > 0) {
@@ -565,17 +630,123 @@ export default function Workspace({
     }
   };
 
-  // Toggle dynamic recording wave
-  const toggleRecording = () => {
-    if (!isRecording) {
-      setIsRecording(true);
-      // Simulate speaking input in 3 seconds
-      setTimeout(() => {
-        setIsRecording(false);
-        handleSendMessage("Explain verse 19 further");
-      }, 3000);
-    } else {
+  // Toggle voice recording input
+  const toggleRecording = async () => {
+    if (typeof window === "undefined") return;
+
+    if (isRecording) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
       setIsRecording(false);
+      setVoiceStatus(null);
+      return;
+    }
+
+    setVoiceStatus(null);
+    setIsRecording(true);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        }
+      });
+      
+      // Negotiate best supported MIME type
+      const mimeTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/mp4',
+      ];
+      let selectedMime = '';
+      for (const mt of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mt)) {
+          selectedMime = mt;
+          break;
+        }
+      }
+      
+      const options: MediaRecorderOptions = selectedMime ? { mimeType: selectedMime } : {};
+      const mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      
+      const recordingStartTime = Date.now();
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+
+        const recordingDurationMs = Date.now() - recordingStartTime;
+        
+        // Enforce minimum recording duration (1.5 seconds)
+        if (recordingDurationMs < 1500) {
+          setVoiceStatus("Recording was too short. Please hold the mic button longer and speak clearly.");
+          return;
+        }
+
+        const blobMime = selectedMime.split(';')[0] || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: blobMime });
+        
+        console.log(`Voice recording: ${audioChunksRef.current.length} chunks, ${(audioBlob.size / 1024).toFixed(1)} KB, ${(recordingDurationMs / 1000).toFixed(1)}s`);
+        
+        const formData = new FormData();
+        formData.append("file", audioBlob, `voice_input.${blobMime === 'audio/mp4' ? 'mp4' : 'webm'}`);
+        
+        setIsLoading(true);
+        setLoadingStatus("Transcribing audio...");
+        
+        try {
+          const apiURL = getApiUrl();
+          const res = await fetch(`${apiURL}/api/transcribe`, {
+            method: "POST",
+            body: formData,
+          });
+          
+          if (!res.ok) {
+            let errDetail = res.statusText;
+            try {
+              const errData = await res.json();
+              errDetail = errData.detail || errDetail;
+            } catch(e) {}
+            throw new Error(errDetail);
+          }
+          
+          const data = await res.json();
+          const transcript = data.transcript;
+          
+          if (transcript && transcript.trim()) {
+            setInputValue(transcript);
+            setVoiceStatus(null);
+            void handleSendMessage(transcript);
+          } else {
+            setVoiceStatus("No speech was detected. Please try again and speak more clearly.");
+            setIsLoading(false);
+            setLoadingStatus("");
+          }
+        } catch (error: any) {
+          console.error("Transcription API error:", error);
+          setVoiceStatus(error.message || "Could not reach the transcription service. Please try again.");
+          setIsLoading(false);
+          setLoadingStatus("");
+        }
+      };
+
+      // Use start() WITHOUT timeslice — captures the entire recording as one
+      // complete blob instead of fragmenting into tiny 250ms micro-chunks
+      mediaRecorder.start();
+    } catch (error) {
+      console.warn("Failed to start media recorder:", error);
+      setIsRecording(false);
+      setVoiceStatus("Microphone permission was denied. Please allow access and try again.");
     }
   };
 
@@ -884,6 +1055,13 @@ export default function Workspace({
                   <span className="text-[10px] text-zinc-400 dark:text-zinc-500 whitespace-nowrap shrink-0">
                     {message.timestamp}
                   </span>
+                  <button
+                    onClick={() => speakText(message.text)}
+                    className="p-1 rounded-md text-zinc-400 hover:text-amber-600 dark:text-zinc-500 dark:hover:text-amber-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                    title="Read aloud"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                  </button>
                   {message.source === "dataset_native" && (
                     <div className="text-[11px] font-medium text-green-600 dark:text-green-500 flex items-center gap-1"><span>✅</span> Retrieval from native dataset</div>
                   )}
@@ -972,7 +1150,7 @@ export default function Workspace({
                     <span className="w-1 bg-white rounded-full animate-bounce h-1" style={{ animationDelay: "300ms" }}></span>
                     <span className="w-1 bg-white rounded-full animate-bounce h-2.5" style={{ animationDelay: "450ms" }}></span>
                   </div>
-                  <span>Listening... Try saying "Explain verse 19 further"</span>
+                  <span>Listening... Speak naturally to ask your question</span>
                 </div>
                 <button onClick={() => setIsRecording(false)} className="underline hover:text-amber-100 cursor-pointer">
                   Cancel
@@ -988,6 +1166,11 @@ export default function Workspace({
             }} 
             className="flex items-center gap-3"
           >
+            {voiceStatus && (
+              <div className="absolute left-4 right-4 -top-14 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-300 shadow-sm">
+                {voiceStatus}
+              </div>
+            )}
             {/* Attachment Button: Circled Plus */}
             <button
               type="button"
@@ -1014,12 +1197,13 @@ export default function Workspace({
               type="button"
               onClick={toggleRecording}
               id="voice-mic-button"
+              aria-pressed={isRecording}
               className={`p-3 rounded-lg cursor-pointer custom-transition shrink-0 ${
                 isRecording 
                   ? "bg-red-500 text-white shadow-red-500/20 animate-pulse" 
                   : "bg-black text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-black dark:hover:bg-zinc-200 shadow-sm"
               }`}
-              title="Push to Talk Voice Input"
+              title={isRecording ? "Stop Voice Input" : "Start Voice Input"}
             >
               <Mic className="w-4 h-4" />
             </button>

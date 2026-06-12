@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Mic Diagnostic</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+    button { padding: 12px 24px; font-size: 16px; cursor: pointer; margin: 5px; border-radius: 8px; border: none; }
+    #startBtn { background: #e94560; color: white; }
+    #stopBtn { background: #0f3460; color: white; }
+    #log { background: #16213e; padding: 15px; border-radius: 8px; margin-top: 15px; white-space: pre-wrap; max-height: 500px; overflow-y: auto; }
+    .success { color: #4ade80; }
+    .error { color: #f87171; }
+    .info { color: #60a5fa; }
+  </style>
+</head>
+<body>
+  <h1>🎤 Microphone Diagnostic Tool</h1>
+  <p>Click Start, speak for 3-5 seconds, then click Stop.</p>
+  <button id="startBtn" onclick="startRecording()">▶ Start Recording</button>
+  <button id="stopBtn" onclick="stopRecording()" disabled>⏹ Stop Recording</button>
+  <button onclick="testTranscribe()" id="transcribeBtn" disabled>📤 Send to Backend</button>
+  <div id="log"></div>
+
+  <script>
+    let mediaRecorder = null;
+    let chunks = [];
+    let stream = null;
+    let startTime = 0;
+    let lastBlob = null;
+
+    function log(msg, cls = '') {
+      const el = document.getElementById('log');
+      el.innerHTML += `<span class="${cls}">${new Date().toLocaleTimeString()} | ${msg}</span>\n`;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    async function startRecording() {
+      chunks = [];
+      log('Requesting microphone access...', 'info');
+      
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: { echoCancellation: true, noiseSuppression: true }
+        });
+        
+        const tracks = stream.getAudioTracks();
+        tracks.forEach(t => {
+          log(`Audio Track: label="${t.label}", enabled=${t.enabled}, muted=${t.muted}, readyState=${t.readyState}`, 'info');
+          const settings = t.getSettings();
+          log(`  Settings: sampleRate=${settings.sampleRate}, channelCount=${settings.channelCount}, deviceId=${settings.deviceId}`, 'info');
+        });
+
+        const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+        let selectedMime = '';
+        for (const mt of mimeTypes) {
+          if (MediaRecorder.isTypeSupported(mt)) { selectedMime = mt; break; }
+        }
+        log(`Selected MIME type: ${selectedMime || '(browser default)'}`, 'info');
+
+        const options = selectedMime ? { mimeType: selectedMime } : {};
+        mediaRecorder = new MediaRecorder(stream, options);
+        log(`MediaRecorder state: ${mediaRecorder.state}, mimeType: ${mediaRecorder.mimeType}`, 'info');
+
+        mediaRecorder.ondataavailable = (e) => {
+          log(`  ondataavailable: ${e.data.size} bytes (${(e.data.size/1024).toFixed(2)} KB)`, 'info');
+          if (e.data.size > 0) chunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = () => {
+          const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+          const blobMime = selectedMime.split(';')[0] || 'audio/webm';
+          lastBlob = new Blob(chunks, { type: blobMime });
+          
+          log(`--- RECORDING COMPLETE ---`, 'success');
+          log(`Duration: ${duration}s`, 'success');
+          log(`Chunks: ${chunks.length}`, 'success');
+          log(`TOTAL BLOB SIZE: ${lastBlob.size} bytes (${(lastBlob.size/1024).toFixed(1)} KB)`, 'success');
+          log(`Expected minimum: ~${(parseFloat(duration) * 6).toFixed(0)} KB (at ~6 KB/s for opus)`, 'info');
+          
+          if (lastBlob.size < 2000) {
+            log(`⚠️ BLOB IS TOO SMALL! Your microphone may not be capturing audio.`, 'error');
+            log(`Try: Windows Settings > System > Sound > Check input device and volume level`, 'error');
+          } else {
+            log(`✅ Blob size looks healthy!`, 'success');
+          }
+          
+          stream.getTracks().forEach(t => t.stop());
+          document.getElementById('transcribeBtn').disabled = false;
+        };
+
+        startTime = Date.now();
+        mediaRecorder.start();  // NO timeslice
+        log(`🔴 Recording started (no timeslice)... Speak now!`, 'success');
+        
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = false;
+      } catch(e) {
+        log(`ERROR: ${e.message}`, 'error');
+      }
+    }
+
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        log('Stop requested...', 'info');
+      }
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('stopBtn').disabled = true;
+    }
+
+    async function testTranscribe() {
+      if (!lastBlob) { log('No recording to send', 'error'); return; }
+      
+      log(`Sending ${(lastBlob.size/1024).toFixed(1)} KB to backend...`, 'info');
+      const formData = new FormData();
+      formData.append('file', lastBlob, 'voice_input.webm');
+      
+      try {
+        const res = await fetch('http://127.0.0.1:8000/api/transcribe', { method: 'POST', body: formData });
+        const data = await res.json();
+        log(`Backend response (${res.status}): ${JSON.stringify(data)}`, res.ok ? 'success' : 'error');
+      } catch(e) {
+        log(`Backend error: ${e.message}`, 'error');
+      }
+    }
+  </script>
+</body>
+</html>

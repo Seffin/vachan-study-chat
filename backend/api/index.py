@@ -7,7 +7,7 @@ Refactored to use Clean Architecture and Hybrid Search (BM25 + Vector).
 import os
 import sys
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone
 
@@ -25,7 +25,7 @@ from schemas.responses import ChatResponse, ChatError, BookDatasetResponse, Toke
 
 from services.translation import detect_user_language, translate_text, translate_to_english
 from services.rate_limiter import is_rate_limited, check_and_update_rate_limits, load_tokens_data, save_tokens_data
-from services.ai_generation import generate_ai_answer, get_active_provider, get_llm_instance
+from services.ai_generation import generate_ai_answer, get_active_provider, get_llm_instance, transcribe_audio
 from services.embedding import get_embeddings_model
 from services.retrieval import hybrid_search
 from services.reranker import rerank_candidates, decide_best_match
@@ -284,6 +284,25 @@ async def chat_endpoint(request: ChatRequest):
         yield f"event: result\ndata: {json.dumps(result)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/transcribe")
+async def transcribe_endpoint(file: UploadFile = File(...)):
+    """Accepts a multipart audio file and transcribes it using Gemini."""
+    try:
+        audio_bytes = await file.read()
+        if not audio_bytes:
+            raise ValueError("Empty audio file received. Please make sure your microphone is working.")
+            
+        mime_type = file.content_type or "audio/webm"
+        if ";" in mime_type:
+            mime_type = mime_type.split(";")[0]
+            
+        transcript = await transcribe_audio(audio_bytes, mime_type)
+        return {"transcript": transcript}
+    except Exception as e:
+        print(f"Transcription Error: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/dataset/{book}", response_model=BookDatasetResponse)
