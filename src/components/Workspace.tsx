@@ -453,21 +453,64 @@ export default function Workspace({
   };
 
   const speakText = (text: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-
+    // Clean up text
     const cleanText = text
-      .replace(/[#>*_`]/g, "")
+      .replace(/[#>*_`~]/g, "")
       .replace(/\[(.*?)\]\(.*?\)/g, "$1")
+      .replace(/[\u{1F600}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "") 
       .replace(/\s+/g, " ")
       .trim();
 
     if (!cleanText) return;
 
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = "en-US";
-    utterance.rate = 0.95;
-    window.speechSynthesis.speak(utterance);
+    // Stop any existing native TTS just in case
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+
+    const sentences = cleanText.match(/[^.!?]+[.!?]+/g) || [cleanText];
+    let currentIndex = 0;
+
+    const playNext = () => {
+      if (currentIndex >= sentences.length) return;
+      
+      const chunk = sentences[currentIndex].trim();
+      if (!chunk) {
+        currentIndex++;
+        playNext();
+        return;
+      }
+
+      // Bypass all browser restrictions by streaming MP3 directly from our own backend
+      const url = `${getApiUrl()}/api/tts?text=${encodeURIComponent(chunk.substring(0, 200))}`;
+      const audio = new Audio(url);
+      
+      audio.onended = () => {
+        currentIndex++;
+        playNext();
+      };
+      
+      const fallbackToNative = () => {
+        if (typeof window !== "undefined" && "speechSynthesis" in window) {
+          const utterance = new SpeechSynthesisUtterance(chunk);
+          utterance.onend = () => { currentIndex++; playNext(); };
+          utterance.onerror = () => { currentIndex++; playNext(); };
+          window.speechSynthesis.speak(utterance);
+        } else {
+          currentIndex++;
+          playNext();
+        }
+      };
+      
+      audio.onerror = fallbackToNative;
+
+      audio.play().catch(e => {
+        console.error("Audio playback blocked", e);
+        fallbackToNative();
+      });
+    };
+
+    playNext();
   };
 
   // 🔌 3. Robust async handleSendMessage connecting Frontend UI to live RAG API (SSE Streaming)

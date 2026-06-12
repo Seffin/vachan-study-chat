@@ -480,7 +480,26 @@ async def delete_history(book: str):
         return {"status": "success", "message": f"Chat history for {book} deleted successfully."}
     return {"status": "success", "message": "No chat history found to delete."}
 
-
+@app.get("/api/tts")
+async def text_to_speech(text: str, lang: str = "en"):
+    """Generates MP3 audio using gTTS to bypass browser restrictions."""
+    try:
+        from fastapi.responses import StreamingResponse
+        import io
+        from gtts import gTTS
+        
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="Text cannot be empty")
+        
+        tts = gTTS(text=text, lang=lang, slow=False)
+        audio_fp = io.BytesIO()
+        tts.write_to_fp(audio_fp)
+        audio_fp.seek(0)
+        
+        return StreamingResponse(audio_fp, media_type="audio/mpeg")
+    except Exception as e:
+        print(f"TTS Error: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 if __name__ == "__main__":
     import uvicorn
     from config import HOST, PORT, RELOAD
