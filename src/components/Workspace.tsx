@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { 
   BookOpen, Plus, Settings, HelpCircle, MoreVertical, 
-  Send, Mic, ChevronLeft, Menu, Eye, Sparkles, Check, Trash2, Volume2
+  Send, Mic, ChevronLeft, Menu, Eye, Sparkles, Check, Trash2, Volume2, Square
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -214,6 +214,10 @@ export default function Workspace({
   const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  
+  // TTS State
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingMsgId, setPlayingMsgId] = useState<string | null>(null);
 
   const getVoiceErrorMessage = (error: string | undefined) => {
     switch (error) {
@@ -452,7 +456,28 @@ export default function Workspace({
     setActiveHighlights(getInitialHighlightsForBook(selectedBook));
   };
 
-  const speakText = (text: string) => {
+  const stopAudio = () => {
+    if (activeAudioRef.current) {
+      activeAudioRef.current.pause();
+      activeAudioRef.current = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    setPlayingMsgId(null);
+  };
+
+  const speakText = (text: string, msgId: string) => {
+    if (playingMsgId === msgId) {
+      // Toggle off if already playing
+      stopAudio();
+      return;
+    }
+
+    // Stop any other currently playing audio before starting new
+    stopAudio();
+    setPlayingMsgId(msgId);
+
     // Clean up text
     const cleanText = text
       .replace(/[#>*_`~]/g, "")
@@ -484,17 +509,20 @@ export default function Workspace({
       // Bypass all browser restrictions by streaming MP3 directly from our own backend
       const url = `${getApiUrl()}/api/tts?text=${encodeURIComponent(chunk.substring(0, 200))}`;
       const audio = new Audio(url);
+      activeAudioRef.current = audio;
       
       audio.onended = () => {
+        if (playingMsgId !== msgId) return; // Cancelled
         currentIndex++;
         playNext();
       };
       
       const fallbackToNative = () => {
+        if (playingMsgId !== msgId) return; // Cancelled
         if (typeof window !== "undefined" && "speechSynthesis" in window) {
           const utterance = new SpeechSynthesisUtterance(chunk);
-          utterance.onend = () => { currentIndex++; playNext(); };
-          utterance.onerror = () => { currentIndex++; playNext(); };
+          utterance.onend = () => { if (playingMsgId === msgId) { currentIndex++; playNext(); } };
+          utterance.onerror = () => { if (playingMsgId === msgId) { currentIndex++; playNext(); } };
           window.speechSynthesis.speak(utterance);
         } else {
           currentIndex++;
@@ -625,7 +653,7 @@ export default function Workspace({
           source: finalData.source as string
         };
         setMessages(prev => [...prev, newAIMessage]);
-        speakText(newAIMessage.text);
+        speakText(newAIMessage.text, newAIMessage.id);
 
         // Update suggested questions chips
         if (finalData.suggested_questions) {
@@ -659,7 +687,7 @@ export default function Workspace({
         };
         
         setMessages(prev => [...prev, newAIMessage]);
-        speakText(newAIMessage.text);
+        speakText(newAIMessage.text, newAIMessage.id);
         setSuggestedQuestions(responseData.suggestions);
         
         if (responseData.verseReferences && responseData.verseReferences.length > 0) {
@@ -1099,11 +1127,15 @@ export default function Workspace({
                     {message.timestamp}
                   </span>
                   <button
-                    onClick={() => speakText(message.text)}
+                    onClick={() => speakText(message.text, message.id)}
                     className="p-1 rounded-md text-zinc-400 hover:text-amber-600 dark:text-zinc-500 dark:hover:text-amber-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-                    title="Read aloud"
+                    title={playingMsgId === message.id ? "Stop reading" : "Read aloud"}
                   >
-                    <Volume2 className="w-3.5 h-3.5" />
+                    {playingMsgId === message.id ? (
+                      <Square className="w-3 h-3 fill-current" />
+                    ) : (
+                      <Volume2 className="w-3.5 h-3.5" />
+                    )}
                   </button>
                   {message.source === "dataset_native" && (
                     <div className="text-[11px] font-medium text-green-600 dark:text-green-500 flex items-center gap-1"><span>✅</span> Retrieval from native dataset</div>
