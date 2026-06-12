@@ -1,57 +1,39 @@
+"""
+Vachan Study Bible Chatbot RAG API
+FastAPI Backend serving retrieval-augmented scripture insights.
+Refactored to use Clean Architecture and Hybrid Search (BM25 + Vector).
+"""
+
 import os
 import sys
-import json
-import time
-import csv
-import subprocess
-import urllib.request
-import zipfile
-import io
-import re
-from typing import List, Dict, Any, Optional
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from datetime import datetime, timezone
 
-try:
-    from langdetect import detect
-except ImportError:
-    def detect(text): return 'en'
-
-LANGUAGE_MAP = {
-    'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German', 'zh-cn': 'Chinese (Simplified)',
-    'zh-tw': 'Chinese (Traditional)', 'hi': 'Hindi', 'ar': 'Arabic', 'ru': 'Russian', 'pt': 'Portuguese',
-    'ja': 'Japanese', 'ko': 'Korean', 'it': 'Italian', 'nl': 'Dutch', 'tr': 'Turkish',
-    'pl': 'Polish', 'vi': 'Vietnamese', 'ml': 'Malayalam', 'ta': 'Tamil', 'te': 'Telugu',
-    'kn': 'Kannada', 'bn': 'Bengali', 'ur': 'Urdu', 'gu': 'Gujarati', 'mr': 'Marathi'
-}
-
-def detect_user_language(message: str) -> tuple[str, str]:
-    try:
-        lang_code = detect(message)
-    except:
-        lang_code = 'en'
-    lang_name = LANGUAGE_MAP.get(lang_code, "English")
-    if lang_code not in LANGUAGE_MAP:
-        lang_name = f"ISO-{lang_code} language"
-    return lang_code, lang_name
-from dotenv import load_dotenv
-
-# Load environment configurations
-load_dotenv()
-
-# Determine directories relative to this file's location (backend/api/index.py)
+# Add backend directory to sys.path so Uvicorn can import correctly
 API_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND_DIR = os.path.dirname(API_DIR)
-STATIC_DATA_DIR = os.path.join(BACKEND_DIR, "static_data")
-DATA_DIR = os.path.join(BACKEND_DIR, "data")
-
-# Add backend directory to sys.path so Uvicorn can import "api.index" correctly
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
-from contextlib import asynccontextmanager
+from config import get_allowed_origins, normalize_book_code, OFFLINE_OVERVIEWS, ALL_DISCLAIMERS
 from db.mongodb import connect_to_mongo, close_mongo_connection, get_database
+from db.repositories import ChatSessionRepository, ScriptureRepository, DatasetRepository
+from schemas.requests import ChatRequest, EnvUpdateRequest
+from schemas.responses import ChatResponse, ChatError, BookDatasetResponse, TokenStatusResponse
+
+from services.translation import detect_user_language, translate_text, translate_to_english
+from services.rate_limiter import is_rate_limited, check_and_update_rate_limits, load_tokens_data, save_tokens_data
+from services.ai_generation import generate_ai_answer, get_active_provider, get_llm_instance
+from services.embedding import get_embeddings_model
+from services.retrieval import hybrid_search
+from services.reranker import rerank_candidates, decide_best_match
+
+import urllib.request
+import json
+import re
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -59,23 +41,12 @@ async def lifespan(app: FastAPI):
     yield
     await close_mongo_connection()
 
-# Initialize FastAPI app
 app = FastAPI(
     title="Vachan Study Bible Study Chatbot RAG API",
-    description="FastAPI Backend serving retrieval-augmented scripture insights, optimized for Vercel Serverless Functions.",
-    version="1.0.0",
+    description="FastAPI Backend serving retrieval-augmented scripture insights using Hybrid Search.",
+    version="2.0.0",
     lifespan=lifespan
 )
-
-# CORS Setup to connect seamlessly to React Next.js Frontend
-allowed_origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://192.168.1.101:3000",
-]
-extra_origins = os.environ.get("ALLOWED_ORIGINS", "")
-if extra_origins:
-    allowed_origins.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
 
 app.add_middleware(
     CORSMiddleware,
@@ -85,393 +56,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from datetime import datetime, timezone
-
-# Environment keys and models
-OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-
-BIBLE_API_KEY = os.environ.get("BIBLE_API_KEY")
-BIBLE_API_URL = os.environ.get("BIBLE_API_URL", "https://rest.api.bible").rstrip('/')
-BIBLE_ID = os.environ.get("BIBLE_ID", "de4e12af7af57f50-02")
-
-DISCLAIMER_UNFOLDING = "🤖 *This response based on the unfoldingWord dataset.*"
-DISCLAIMER_AI = "🤖 *This is an AI-generated response based on the unfoldingWord dataset.*"
-
-# =====================================================================
-# 🧠 OFFLINE SEMANTIC OVERLAP & RETRIEVER INFRASTRUCTURE
-# =====================================================================
-
-class Document:
-    def __init__(self, page_content: str, metadata: dict):
-        self.page_content = page_content
-        self.metadata = metadata
-
-class SemanticRetriever:
-    """Fallback semantic matcher. Uses basic word overlap score if no active keys are set."""
-    def __init__(self, records: List[Dict[str, str]]):
-        self.docs = []
-        for row in records:
-            page_content = f"Reference: {row['Reference']}\nQuestion: {row['Question']}\nResponse: {row['Response']}"
-            metadata = {
-                "reference": str(row["Reference"]),
-                "question": str(row["Question"]),
-                "response": str(row["Response"])
-            }
-            self.docs.append(Document(page_content, metadata))
-
-    def retrieve_with_scores(self, query: str, k: int = 10):
-        query_words = set(query.lower().split())
-        scored_docs = []
-        
-        for doc in self.docs:
-            content_words = set(doc.page_content.lower().split())
-            # Basic overlap scoring
-            overlap = len(query_words.intersection(content_words))
-            # Boost score if the query words match the metadata question specifically
-            q_words = set(doc.metadata["question"].lower().split())
-            overlap += len(query_words.intersection(q_words)) * 2
-            
-            # Massive boost for exact substring matches to ensure Tier 1 catches it
-            norm_q = re.sub(r'[^a-z0-9]', '', doc.metadata["question"].lower())
-            norm_query = re.sub(r'[^a-z0-9]', '', query.lower())
-            if norm_query and norm_q and (norm_query == norm_q or norm_query in norm_q or norm_q in norm_query):
-                overlap += 1000
-            
-            scored_docs.append((doc, overlap))
-            
-        # Sort by overlap score descending (higher is better for semantic retriever)
-        scored_docs.sort(key=lambda x: x[1], reverse=True)
-        return scored_docs[:k]
-
-    def retrieve(self, query: str, k: int = 10) -> List[Document]:
-        return [doc for doc, _ in self.retrieve_with_scores(query, k)]
-
-    def invoke(self, query: str) -> List[Document]:
-        return self.retrieve(query, k=10)
-
-# LangChain prompt template
-from langchain_core.prompts import PromptTemplate
-prompt_tmpl = PromptTemplate(
-    input_variables=["context", "question", "user_language"],
-    template="""You are the scholarly Bible Study Chatbot for "Vachan Study".
-Please answer the following question strictly IN {user_language}.
-
-CONTEXT: {context}
-
-INSTRUCTION: You must answer the user's query using ONLY the information provided in the CONTEXT above. If the CONTEXT is empty or does not contain the answer, you are strictly forbidden from generating an answer. Instead, you must output exactly and only: 'DATABASE_MISS: No context found'.
-
-Question: {question}
-
-Answer naturally IN {user_language}.
-"""
-)
-
-# Dynamic cache for retrievers: {book_code: (retriever_mode, retriever_instance)}
-retrievers: Dict[str, tuple] = {}
-
-def get_retriever_for_book(book_code: str, lang_code: str = "en") -> tuple:
-    """Loads the book pre-compiled FAISS index or TSV fallback, constructs the retriever, and caches it."""
-    book_code = book_code.upper().strip()
-    cache_key = f"{book_code}_{lang_code}"
-    if cache_key in retrievers:
-        return retrievers[cache_key]
-
-    # Resolve active LLM provider mode
-    active_provider = None
-    embeddings = None
-    index_subdir = None
-
-    if GEMINI_KEY:
-        try:
-            try:
-                from langchain_google_genai import GoogleGenerativeAIEmbeddings as GeminiEmbeddings
-            except ImportError:
-                from langchain_google_genai import GoogleGenAIEmbeddings as GeminiEmbeddings
-            embeddings = GeminiEmbeddings(model="models/gemini-embedding-001", google_api_key=GEMINI_KEY)
-            index_subdir = "gemini"
-            active_provider = "gemini"
-        except Exception as e:
-            print(f"RAG System: Failed to load Gemini embeddings ({e})")
-
-    if not active_provider and OPENAI_KEY:
-        try:
-            from langchain_openai import OpenAIEmbeddings
-            embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_KEY)
-            index_subdir = "openai"
-            active_provider = "openai"
-        except Exception as e:
-            print(f"RAG System: Failed to load OpenAIEmbeddings ({e})")
-
-    # If provider API keys exist, attempt loading from MongoDB Atlas Vector Search
-    if active_provider and embeddings and index_subdir:
-        try:
-            from langchain_mongodb import MongoDBAtlasVectorSearch
-            from db.mongodb import get_sync_database
-            
-            db = get_sync_database()
-            if db is not None:
-                collection = db["vector_embeddings"]
-                print(f"RAG System: Connecting to MongoDB Atlas Vector Search ({active_provider}) for '{book_code}'...", flush=True)
-                
-                vectorstore = MongoDBAtlasVectorSearch(
-                    collection=collection,
-                    embedding=embeddings,
-                    index_name="default",
-                    text_key="question",
-                    embedding_key="embedding"
-                )
-                
-                pre_filter = {
-                    "book_code": {"$eq": book_code},
-                    "lang_code": {"$eq": lang_code}
-                }
-                
-                book_retriever = vectorstore.as_retriever(
-                    search_kwargs={
-                        "k": 10,
-                        "pre_filter": {"$and": [{"book_code": book_code}, {"lang_code": lang_code}]}
-                    }
-                )
-                retrievers[cache_key] = (active_provider, book_retriever)
-                return retrievers[cache_key]
-            else:
-                print(f"RAG System: MongoDB database not connected. Falling back...")
-        except Exception as e:
-            print(f"RAG System: MongoDB Atlas Vector Search loading failed for '{book_code}' ({e}). Falling back...")
-
-    # Remove the offline Mode 3 fallback entirely. If MongoDB vector search isn't working, 
-    # we just return "not_found", None to force general LLM fallback.
-    print(f"RAG System: Cloud Vector Search not initialized for '{book_code}'. Falling back to general AI knowledge...")
-    return "not_found", None
-
-# =====================================================================
-# 📊 PERSISTENT TOKEN MONITORING & RATE-LIMITS (GEMINI FREE TIER)
-# =====================================================================
-
-# Check if running in Vercel (or other serverless environment where file writing might fail)
-# On Vercel, /tmp is the only writeable directory.
-if os.environ.get("VERCEL") == "1" or os.environ.get("VERCEL_ENV") or not os.access(DATA_DIR, os.W_OK) if os.path.exists(DATA_DIR) else False:
-    TOKENS_FILE = "/tmp/tokens.json"
-else:
-    TOKENS_FILE = os.path.join(DATA_DIR, "tokens.json")
-
-# In-memory backup dictionary to guarantee zero-fail operation
-_in_memory_tokens = None
-
-def load_tokens_data() -> dict:
-    global _in_memory_tokens
-    
-    default_data = {
-        "total_tokens_used": 0,
-        "pending_tokens": 1000000,
-        "limit": 1000000,
-        "requests_today": 0,
-        "requests_this_minute": 0,
-        "last_minute_reset_time": time.time(),
-        "last_day_reset_time": time.time()
-    }
-    
-    # Ensure parent directory of TOKENS_FILE exists
-    tokens_dir = os.path.dirname(TOKENS_FILE)
-    if tokens_dir:
-        try:
-            os.makedirs(tokens_dir, exist_ok=True)
-        except Exception as e:
-            print(f"RAG System: Failed to create tokens directory {tokens_dir} ({e}). Using in-memory state fallback.")
-            if _in_memory_tokens is None:
-                _in_memory_tokens = default_data.copy()
-            return _in_memory_tokens
-
-    # If already using in-memory backup, return it
-    if _in_memory_tokens is not None:
-        # Fill in any missing keys
-        for key, val in default_data.items():
-            if key not in _in_memory_tokens:
-                _in_memory_tokens[key] = val
-        return _in_memory_tokens
-
-    if not os.path.exists(TOKENS_FILE):
-        try:
-            with open(TOKENS_FILE, "w", encoding="utf-8") as f:
-                json.dump(default_data, f)
-            return default_data
-        except Exception as e:
-            print(f"Error creating tokens file ({e}). Falling back to in-memory dictionary.")
-            _in_memory_tokens = default_data.copy()
-            return _in_memory_tokens
-            
-    try:
-        with open(TOKENS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        # Fill in any missing keys
-        for key, val in default_data.items():
-            if key not in data:
-                data[key] = val
-        return data
-    except Exception as e:
-        print(f"Error loading tokens file ({e}). Falling back to in-memory state.")
-        if _in_memory_tokens is None:
-            _in_memory_tokens = default_data.copy()
-        return _in_memory_tokens
-
-def save_tokens_data(data: dict):
-    global _in_memory_tokens
-    # Always keep in-memory backup updated
-    _in_memory_tokens = data
-    try:
-        with open(TOKENS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-    except Exception as e:
-        print(f"Error saving tokens file ({e}). Token state is preserved in-memory.")
-
-def is_rate_limited() -> tuple:
-    data = load_tokens_data()
-    now = time.time()
-    
-    # Check day reset
-    if now - data.get("last_day_reset_time", 0.0) >= 86400:
-        return False, ""
-        
-    # Check minute reset
-    if now - data.get("last_minute_reset_time", 0.0) >= 60:
-        return False, ""
-        
-    if data["requests_this_minute"] >= 15:
-        return True, "Gemini free tier rate limit exceeded (15 RPM). Switching to local offline mode."
-    if data["requests_today"] >= 1500:
-        return True, "Gemini free tier daily limit exceeded (1500 RPD). Switching to local offline mode."
-    return False, ""
-
-def check_and_update_rate_limits() -> dict:
-    data = load_tokens_data()
-    now = time.time()
-    
-    # Reset day count if needed
-    if now - data.get("last_day_reset_time", 0.0) >= 86400:
-        data["requests_today"] = 0
-        data["last_day_reset_time"] = now
-        data["pending_tokens"] = data["limit"] # Refill tokens daily
-        
-    # Reset minute count if needed
-    if now - data.get("last_minute_reset_time", 0.0) >= 60:
-        data["requests_this_minute"] = 0
-        data["last_minute_reset_time"] = now
-        
-    # Increment counts for this request
-    data["requests_today"] += 1
-    data["requests_this_minute"] += 1
-    
-    save_tokens_data(data)
-    return data
-
-def extract_token_usage(llm_result, prompt_str: str) -> dict:
-    # Modern LangChain standard (e.g. usage_metadata)
-    if hasattr(llm_result, "usage_metadata") and llm_result.usage_metadata:
-        return {
-            "prompt": llm_result.usage_metadata.get("input_tokens", 0),
-            "completion": llm_result.usage_metadata.get("output_tokens", 0),
-            "total": llm_result.usage_metadata.get("total_tokens", 0)
-        }
-    
-    # Response metadata standard
-    if hasattr(llm_result, "response_metadata") and llm_result.response_metadata:
-        meta = llm_result.response_metadata
-        if "token_usage" in meta:
-            usage = meta["token_usage"]
-            if isinstance(usage, dict):
-                return {
-                    "prompt": usage.get("prompt_tokens", 0),
-                    "completion": usage.get("completion_tokens", 0),
-                    "total": usage.get("total_tokens", 0)
-                }
-    
-    # Fallback to standard word/character approximate counter (approx. 4 chars per token)
-    prompt_chars = len(prompt_str)
-    completion_chars = len(llm_result.content) if hasattr(llm_result, "content") else 0
-    prompt_tokens = max(1, int(prompt_chars / 4))
-    completion_tokens = max(1, int(completion_chars / 4))
-    return {
-        "prompt": prompt_tokens,
-        "completion": completion_tokens,
-        "total": prompt_tokens + completion_tokens
-    }
-
-# =====================================================================
-# 🌐 API SCHEMAS & API ENDPOINTS
-# =====================================================================
 
 def normalize_text(text: str) -> str:
     if not text:
         return ""
     return re.sub(r'[^a-z0-9]', '', text.lower())
 
-def load_dataset_records(book_code: str) -> list:
-    book_code = normalize_book_code(book_code).upper()
-    tsv_filename = f"tq_{book_code}.tsv"
-    tsv_path = os.path.join(DATA_DIR, "en_tq", tsv_filename)
-    
-    if not os.path.exists(tsv_path):
-        csv_filename = f"tq_{book_code}.csv"
-        csv_path = os.path.join(STATIC_DATA_DIR, csv_filename)
-        if os.path.exists(csv_path):
-            tsv_path = csv_path
-        else:
-            tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
-            
-    if not os.path.exists(tsv_path):
-        return []
-        
-    try:
-        is_tsv = tsv_path.endswith('.tsv')
-        records = []
-        with open(tsv_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f, delimiter='\t' if is_tsv else ',')
-            
-            normalized_fieldnames = []
-            for field in (reader.fieldnames or []):
-                field_clean = field.strip()
-                if field_clean.lower() == 'reference': field_clean = 'Reference'
-                elif field_clean.lower() == 'question': field_clean = 'Question'
-                elif field_clean.lower() == 'response': field_clean = 'Response'
-                normalized_fieldnames.append(field_clean)
-            reader.fieldnames = normalized_fieldnames
-            
-            for row in reader:
-                records.append({
-                    "Reference": str(row.get("Reference") or "1:1").strip() or "1:1",
-                    "Question": str(row.get("Question") or "").strip(),
-                    "Response": str(row.get("Response") or "").strip()
-                })
-        return records
-    except Exception as e:
-        print(f"Error loading dataset records: {e}")
-        return []
-
-def parse_reference(ref_str: str) -> tuple:
-    match = re.match(r'(\d+)\s*:\s*(\d+)', ref_str)
-    if match:
-        return int(match.group(1)), int(match.group(2))
-    return 1, 1
-
-
-OFFLINE_OVERVIEWS = {
-    "MAT": "📖 **Overview of Matthew:** The Gospel of Matthew serves as a legal and theological bridge between the Old and New Testaments. It emphasizes Jesus as the promised Messiah, tracing His royal lineage back to Abraham and David, and highlights the Kingdom of Heaven through key teachings like the Sermon on the Mount.",
-    "GEN": "📖 **Overview of Genesis:** Genesis is the book of beginnings. It documents the creation of the universe, the fall of humanity, and the covenant origin of God's chosen people through Abraham, Isaac, Jacob, and Joseph.",
-    "LEV": "📖 **Overview of Leviticus:** Leviticus is a handbook for priests and worshipers, focusing on the holiness of God and the purification of His people. It details sacrificial offerings, priestly consecration, laws of clean and unclean, the Day of Atonement, and the holiness code."
-}
 
 def is_overview_query(query: str) -> bool:
     if not query:
         return False
     q_lower = query.lower().strip()
     patterns = [
-        r'\boverview\b',
-        r'\bsummary\b',
-        r'\bintroduce\b',
-        r'\bintroduction\b',
-        r'\boutline\b',
-        r'\bthemes\b'
+        r'\boverview\b', r'\bsummary\b', r'\bintroduce\b',
+        r'\bintroduction\b', r'\boutline\b', r'\bthemes\b'
     ]
     for pattern in patterns:
         if re.search(pattern, q_lower):
@@ -479,594 +77,240 @@ def is_overview_query(query: str) -> bool:
                 return True
     return False
 
-# =====================================================================
-# 🧠 LLM-POWERED SEMANTIC MATCHING ENGINE
-# =====================================================================
 
-def llm_semantic_match(
-    user_query: str,
-    candidates: List[Dict[str, str]],
-    provider: str,
-    lang_name: str = "English"
-) -> Optional[Dict[str, str]]:
-    """Uses an LLM to judge semantic equivalence between the user's question
-    and a batch of candidate dataset questions. Returns the matched candidate's
-    native response/reference directly from the dataset (no AI rephrasing),
-    or None if no semantic match exists.
-    
-    Handles: active/passive voice, synonyms, cross-language meaning, word reordering.
-    """
-    if not candidates or not user_query.strip():
-        return None
-    
-    # Build the numbered candidate list for the prompt
-    candidate_lines = []
-    for i, c in enumerate(candidates, 1):
-        candidate_lines.append(f"{i}. {c['question']}")
-    candidates_block = "\n".join(candidate_lines)
-    
-    semantic_prompt = f"""You are a semantic matching engine. Compare the USER QUESTION against each CANDIDATE question below.
-Two questions are SEMANTICALLY EQUIVALENT if they ask about the same thing, even if:
-- One is active voice, the other passive (e.g., "Why did Joseph divorce Mary?" ≡ "Why was Mary divorced by Joseph?")
-- One is in a different language but means the same thing
-- Word order, synonyms, or phrasing differs but core meaning is identical
-- One question is more specific or detailed than the other but covers the same topic
-
-IMPORTANT: Only match if the core MEANING is truly equivalent. Do NOT match questions that are merely about the same topic but ask different things.
-
-USER QUESTION: {user_query}
-
-CANDIDATES:
-{candidates_block}
-
-Respond with ONLY the number (1, 2, 3...) of the best semantic match, or "NONE" if no candidate is semantically equivalent. Do not explain."""
-    
-    try:
-        if provider == "gemini" and GEMINI_KEY:
-            from google import genai
-            client = genai.Client(api_key=GEMINI_KEY)
-            gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-            response = client.models.generate_content(
-                model=gemini_model_name,
-                contents=semantic_prompt,
-            )
-            result_text = response.text.strip()
-        elif provider == "openai" and OPENAI_KEY:
-            llm = get_llm_instance("openai")
-            if not llm:
-                return None
-            llm_result = llm.invoke(semantic_prompt)
-            result_text = llm_result.content.strip()
-        else:
-            return None
-        
-        # Parse the LLM response — expect a number or "NONE"
-        result_text = result_text.strip().strip('.')
-        if result_text.upper() == "NONE":
-            print(f"Semantic Match: LLM returned NONE — no semantic equivalent found.", flush=True)
-            return None
-        
-        # Try to extract a number from the response
-        match_num = re.search(r'(\d+)', result_text)
-        if match_num:
-            idx = int(match_num.group(1)) - 1  # Convert to 0-indexed
-            if 0 <= idx < len(candidates):
-                matched = candidates[idx]
-                print(f"Semantic Match: LLM matched candidate #{idx+1}: '{matched['question']}'", flush=True)
-                return matched
-        
-        print(f"Semantic Match: LLM response unparseable: '{result_text}'", flush=True)
-        return None
-        
-    except Exception as e:
-        print(f"Semantic Match Error: {e}", flush=True)
-        return None
-
-def estimate_semantic_match_tokens(user_query: str, candidates: List[Dict[str, str]]) -> int:
-    """Estimate the token cost of a semantic match call for rate limiting decisions."""
-    prompt_chars = 500 + len(user_query) + sum(len(c.get('question', '')) for c in candidates)
-    return max(1, int(prompt_chars / 4)) + 10  # +10 for the short response
-
-class ChatRequest(BaseModel):
-    book: str
-    message: str
-    history: Optional[List[str]] = []
-
-class ChatError(BaseModel):
-    status: bool = False
-    tag: Optional[str] = None
-    message: Optional[str] = None
-
-class SuggestedQuestionsOutput(BaseModel):
-    suggested_questions: List[str]
-
-class ChatResponse(BaseModel):
-    answer: str
-    reference: str
-    suggested_questions: List[str]
-    is_general_knowledge: bool = False
-    tokens_used: int = 0
-    total_tokens_used: int = 0
-    pending_tokens: int = 0
-    requests_today: int = 0
-    requests_this_minute: int = 0
-    source: Optional[str] = None
-    error: Optional[ChatError] = None
-
-def get_llm_instance(provider: str):
-    llm = None
-    if provider == "gemini" and GEMINI_KEY:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-        temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.1"))
-        llm = ChatGoogleGenerativeAI(model=gemini_model, google_api_key=GEMINI_KEY, temperature=temperature)
-    elif provider == "openai" and OPENAI_KEY:
-        from langchain_openai import ChatOpenAI
-        model_name = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-        temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.1"))
-        llm = ChatOpenAI(model=model_name, temperature=temperature, openai_api_key=OPENAI_KEY)
-    return llm
-
-@app.post("/api/chat", response_model=ChatResponse)
+@app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
-    original_query = request.message.strip()
-    book_code = request.book.upper().strip()
-    if not original_query:
-        raise HTTPException(status_code=400, detail="Query message cannot be empty.")
+    """SSE streaming chat endpoint. Sends real-time status events, then a final JSON result."""
+    from fastapi.responses import StreamingResponse
+
+    async def event_stream():
+        original_query = request.message.strip()
+        book_code = normalize_book_code(request.book)
         
-    print(f"API Chat Query: '{original_query}' for book '{book_code}'", flush=True)
+        if not original_query:
+            yield f"event: error\ndata: Query message cannot be empty.\n\n"
+            return
+            
+        print(f"API Chat Query: '{original_query}' for book '{book_code}'", flush=True)
 
-    lang_code, lang_name = detect_user_language(original_query)
-    print(f"Detected Language: {lang_name} ({lang_code})", flush=True)
+        yield f"event: status\ndata: Detecting language...\n\n"
+        lang_code, lang_name = detect_user_language(original_query)
+        print(f"Detected Language: {lang_name} ({lang_code})", flush=True)
+        yield f"event: status\ndata: Language detected: {lang_name}\n\n"
 
-    rate_limited, limit_msg = is_rate_limited()
-    tokens_data = load_tokens_data()
-    tokens_used = 0
-    stats = load_tokens_data()
+        rate_limited, limit_msg = is_rate_limited()
+        tokens_data = load_tokens_data()
+        tokens_used = 0
+        stats = load_tokens_data()
 
-    is_overview = is_overview_query(original_query)
-    
-    answer = ""
-    top_ref = "1:1"
-    source = "ai_general"
-    is_general_knowledge = False
-    docs = []
-
-    active_provider = "gemini" if GEMINI_KEY else "openai" if OPENAI_KEY else "semantic"
-
-    error_obj = ChatError(status=False)
-    try:
-
-        def get_docs(query, lang):
-            rmode, retriever = get_retriever_for_book(book_code, lang_code=lang)
-            if not retriever:
-                return rmode, []
+        is_overview = is_overview_query(original_query)
         
-            try:
-                if hasattr(retriever, "vectorstore"):
-                    try:
-                        ds = retriever.vectorstore.similarity_search_with_score(query, k=10)
-                    except:
-                        ds = [(d, 0.0) for d in retriever.invoke(query)]
-                elif hasattr(retriever, "retrieve_with_scores"):
-                    ds = retriever.retrieve_with_scores(query, k=10)
-                else:
-                    ds = [(d, 0.0) for d in retriever.invoke(query)]
-                
-                return rmode, ds
-            except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    print(f"RAG System: Gemini API Quota Exhausted ({e}).", flush=True)
-                    return "quota_exhausted", []
-                print(f"RAG System: Error in get_docs ({e}).", flush=True)
-                return rmode, []
-
-        # --- Step 0: Direct Dataset Exact Match ---
-        records = load_dataset_records(book_code)
-        norm_query = normalize_text(original_query)
-        exact_match = None
-        for r in records:
-            if normalize_text(r["Question"]) == norm_query:
-                exact_match = r
-                break
+        answer = ""
+        top_ref = "1:1"
+        source = "ai_general"
+        is_general_knowledge = False
+        error_obj = ChatError(status=False)
         
-        if exact_match:
-            print(f"Exact dataset match found for query: '{original_query}'", flush=True)
-            answer = exact_match["Response"]
-            top_ref = exact_match["Reference"]
-            source = "dataset_native"
-            tier_matched = 1
-        else:
-            tier_matched = 0
+        active_provider = get_active_provider()
+        llm = get_llm_instance(active_provider)
+        embeddings_model = get_embeddings_model(active_provider)
 
-        # --- Step 1: Native Retrieval ---
-        if tier_matched == 0:
-            retriever_mode, docs_and_scores = get_docs(original_query, lang_code)
-            print(f"DEBUG - RETRIEVED DOCS COUNT: {len(docs_and_scores)}", flush=True)
-            print(f"DEBUG - RAW DOCS: {docs_and_scores}", flush=True)
-        
-            if retriever_mode != "not_found" and not is_overview and docs_and_scores:
-                for doc, score in docs_and_scores:
-                    doc_q = normalize_text(doc.metadata.get("question", ""))
-                    if norm_query and doc_q and (norm_query == doc_q or norm_query in doc_q or doc_q in norm_query):
-                        answer = doc.metadata.get("response", "")
-                        top_ref = doc.metadata.get("reference", "1:1")
-                        tier_matched = 1
-                        source = "dataset_native"
-                        break
-                # --- Step 1.5: LLM Semantic Match ---
-                # If substring check failed, use LLM to judge semantic equivalence
-                # between the user's question and the top vector search candidates.
-                if tier_matched == 0 and active_provider != "semantic" and not rate_limited and tokens_data["pending_tokens"] > 0:
-                    sem_candidates = []
-                    for doc, score in docs_and_scores[:5]:
-                        sem_candidates.append({
-                            "question": doc.metadata.get("question", ""),
-                            "response": doc.metadata.get("response", ""),
-                            "reference": doc.metadata.get("reference", "1:1")
-                        })
-                    
-                    if sem_candidates:
-                        print(f"Tier 1.5: Running LLM Semantic Match against {len(sem_candidates)} candidates...", flush=True)
-                        sem_match = llm_semantic_match(original_query, sem_candidates, active_provider, lang_name)
-                        tokens_used += estimate_semantic_match_tokens(original_query, sem_candidates)
-                        
-                        if sem_match:
-                            answer = sem_match["response"]
-                            top_ref = sem_match["reference"]
-                            tier_matched = 2
-                            source = "dataset_semantic"
-                            print(f"Tier 1.5: Semantic match found! Returning dataset answer for ref {top_ref}", flush=True)
-                
-                # Original score-threshold check (only if LLM semantic match also missed)
-                if tier_matched == 0:
-                    top_doc, top_score = docs_and_scores[0]
-                    is_semantic_match = False
-                    if retriever_mode == "semantic" and top_score > 6:
-                        is_semantic_match = True
-                    elif retriever_mode != "semantic" and top_score < 0.35: # Strict threshold filter
-                        is_semantic_match = True
-                    
-                    if is_semantic_match:
-                        answer = top_doc.metadata.get("response", "")
-                        top_ref = top_doc.metadata.get("reference", "1:1")
-                        tier_matched = 2
-                        source = "dataset_native"
-                    
-                if tier_matched > 0:
-                    docs = [d for d, s in docs_and_scores]
-
-        # --- Step 2: English Translation Fallback ---
-        if tier_matched == 0 and not is_overview and lang_code != "en" and not rate_limited and tokens_data["pending_tokens"] > 0:
-            print("Native dataset missed. Attempting English Translation Fallback...", flush=True)
-            llm = get_llm_instance(active_provider)
-            if llm:
-                try:
-                    trans_prompt = f"Translate the following text to English, output ONLY the translation:\\n{original_query}"
-                    trans_res = llm.invoke(trans_prompt)
-                    translated_query = trans_res.content.strip()
-                    print(f"Translation Fallback: Translated query to English: '{translated_query}'", flush=True)
-                
-                    en_rmode, en_docs_and_scores = get_docs(translated_query, "en")
-                    if en_rmode != "not_found" and en_docs_and_scores:
-                        docs = [d for d, s in en_docs_and_scores]
-                        
-                        # Step 2a: Try LLM Semantic Match on English candidates FIRST
-                        # If the translated query semantically matches an English dataset question,
-                        # return the dataset's native answer translated to the user's language.
-                        en_sem_candidates = []
-                        for doc in docs[:5]:
-                            en_sem_candidates.append({
-                                "question": doc.metadata.get("question", ""),
-                                "response": doc.metadata.get("response", ""),
-                                "reference": doc.metadata.get("reference", "1:1")
-                            })
-                        
-                        sem_match = llm_semantic_match(translated_query, en_sem_candidates, active_provider, "English")
-                        tokens_used += estimate_semantic_match_tokens(translated_query, en_sem_candidates)
-                        
-                        if sem_match:
-                            # Semantic match found in English dataset — translate the answer to user's language
-                            print(f"Translation Fallback: Semantic match found in English dataset! Translating answer to {lang_name}...", flush=True)
-                            translate_answer_prompt = f"Translate the following text to {lang_name}. Output ONLY the translation, nothing else:\n\n{sem_match['response']}"
-                            translate_res = llm.invoke(translate_answer_prompt)
-                            answer = translate_res.content.strip()
-                            top_ref = sem_match["reference"]
-                            source = "dataset_semantic"
-                            tier_matched = 3
-                            
-                            usage = extract_token_usage(translate_res, translate_answer_prompt)
-                            tokens_used += usage["total"]
-                        else:
-                            # Step 2b: No semantic match — fall back to context-based LLM rephrasing
-                            context_str = "\\n---\\n".join([d.page_content for d in docs[:4]])
-                            formatted_prompt = prompt_tmpl.format(context=context_str, question=original_query, user_language=lang_name)
-                            llm_result = llm.invoke(formatted_prompt)
-                            answer = llm_result.content.strip()
-                            top_ref = docs[0].metadata.get("reference", "1:1")
-                            source = "translated_from_en"
-                            tier_matched = 3
-                        
-                            usage = extract_token_usage(llm_result, formatted_prompt)
-                            tokens_used += usage["total"]
-                except Exception as e:
-                    print(f"Translation Fallback Failed: {e}", flush=True)
-
-        # --- Step 3: General AI Fallback ---
-        if tier_matched == 0:
-            if retriever_mode == "quota_exhausted":
-                answer = "⚠️ The AI model's free tier quota has been exhausted for this minute. Please wait a moment and try your question again!"
-                source = "ai_general"
-            elif is_overview and book_code in OFFLINE_OVERVIEWS and lang_code == "en":
+        try:
+            # Step 0: Overview Fast-Path
+            if is_overview and book_code in OFFLINE_OVERVIEWS and lang_code == "en":
+                yield f"event: status\ndata: Loading cached overview...\n\n"
                 answer = OFFLINE_OVERVIEWS[book_code]
                 source = "dataset_native"
                 is_general_knowledge = True
+                
             else:
-                if rate_limited or tokens_data["pending_tokens"] <= 0:
-                    answer = "Token quota exhausted or rate limit active. Please try again later."
-                    source = "dataset_native"
-                else:
-                    if active_provider == "gemini" and GEMINI_KEY:
-                        from google import genai
-                        client = genai.Client(api_key=GEMINI_KEY)
-                        gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+                # Generate Embedding for Hybrid Search
+                query_embedding = []
+                if embeddings_model and not rate_limited and tokens_data["pending_tokens"] > 0:
+                    yield f"event: status\ndata: Generating query embedding...\n\n"
+                    try:
+                        query_embedding = embeddings_model.embed_query(original_query)
+                    except Exception as e:
+                        print(f"Embedding generation failed: {e}")
+                
+                # Step 1: Native Language Hybrid Search
+                yield f"event: status\ndata: Searching {lang_name} dataset...\n\n"
+                candidates = await hybrid_search(original_query, query_embedding, book_code, lang_code, k=10)
+                
+                # Step 2: Re-rank Candidates
+                if candidates:
+                    yield f"event: status\ndata: Ranking {len(candidates)} candidates...\n\n"
+                ranked_candidates = rerank_candidates(original_query, candidates)
+                
+                # Step 3: Confidence Decision
+                best_match, source_label, verify_tokens = await decide_best_match(original_query, ranked_candidates, llm)
+                tokens_used += verify_tokens
+                
+                if best_match:
+                    score = best_match.get("rerank_score", 0)
+                    yield f"event: status\ndata: ✅ Match found (confidence: {score:.0%})\n\n"
+                    answer = best_match["response"]
+                    top_ref = best_match["reference"]
+                    source = source_label
                     
-                        try:
-                            if is_overview:
-                                formatted_prompt = f"You are the scholarly Bible Study Chatbot for 'Vachan Study'. Please provide a comprehensive, scholarly, and structured overview of the Bible book '{book_code}' strictly IN {lang_name}. Cover Historical Background, Key Themes, and Outline. State at the end: 'Note: This response comes from my general knowledge database.'"
-                            else:
-                                formatted_prompt = f"You are the scholarly Bible Study Chatbot. Please answer the following question strictly IN {lang_name} using your general knowledge: {original_query}"
-                            
-                            response = client.models.generate_content(
-                                model=gemini_model_name,
-                                contents=formatted_prompt,
-                            )
-                            answer = response.text.strip()
+                else:
+                    # Step 4: Translation Fallback OR AI Generation
+                    if lang_code != "en" and not rate_limited and tokens_data["pending_tokens"] > 0 and llm:
+                        yield f"event: status\ndata: Native search missed. Attempting English fallback...\n\n"
+                        print("Native search missed. Attempting English Translation Fallback...", flush=True)
+                        
+                        # Translate query to English
+                        yield f"event: status\ndata: Translating query to English...\n\n"
+                        en_query = await translate_to_english(original_query, llm)
+                        tokens_used += max(1, int(len(original_query)/4)) + 10
+                        
+                        # English Embedding & Hybrid Search
+                        en_embedding = []
+                        if embeddings_model:
+                            try:
+                                en_embedding = embeddings_model.embed_query(en_query)
+                            except Exception:
+                                pass
+                        
+                        yield f"event: status\ndata: Searching English dataset...\n\n"
+                        en_candidates = await hybrid_search(en_query, en_embedding, book_code, "en", k=10)
+                        en_ranked = rerank_candidates(en_query, en_candidates)
+                        
+                        en_best, en_source, en_verify_tokens = await decide_best_match(en_query, en_ranked, llm)
+                        tokens_used += en_verify_tokens
+                        
+                        if en_best:
+                            score = en_best.get("rerank_score", 0)
+                            yield f"event: status\ndata: ✅ English match found (confidence: {score:.0%}). Translating to {lang_name}...\n\n"
+                            print("Match found in English dataset. Translating answer to native language...")
+                            answer = await translate_text(en_best["response"], lang_name, llm)
+                            top_ref = en_best["reference"]
+                            source = "dataset_translated"
+                            tokens_used += max(1, int(len(en_best["response"])/4)) + max(1, int(len(answer)/4))
+                        else:
+                            yield f"event: status\ndata: No dataset match. Generating AI response...\n\n"
+                            print("English dataset missed. Falling back to AI Generation...")
+                            answer, ai_tokens = await generate_ai_answer(original_query, lang_name, book_code, is_overview, active_provider)
+                            source = "ai_general"
+                            tokens_used += ai_tokens
+                    else:
+                        # English or rate-limited: Fall back directly to AI Generation
+                        if rate_limited or tokens_data["pending_tokens"] <= 0:
+                            answer = "Token quota exhausted or rate limit active. Please try again later."
+                            source = "dataset_native"
+                        else:
+                            yield f"event: status\ndata: No dataset match. Generating AI response...\n\n"
+                            print("Falling back to AI Generation...")
+                            answer, ai_tokens = await generate_ai_answer(original_query, lang_name, book_code, is_overview, active_provider)
                             source = "ai_general"
                             is_general_knowledge = True
-                        
-                            # Approximate tokens
-                            tokens_used += max(1, int(len(formatted_prompt)/4)) + max(1, int(len(answer)/4))
-                        except Exception as e:
-                            print(f"Native Gemini Fallback Failed: {e}", flush=True)
-                            raise e
-                    else:
-                        llm = get_llm_instance(active_provider)
-                        if llm:
-                            try:
-                                if is_overview:
-                                    formatted_prompt = f"You are the scholarly Bible Study Chatbot for 'Vachan Study'. Please provide a comprehensive, scholarly, and structured overview of the Bible book '{book_code}' strictly IN {lang_name}. Cover Historical Background, Key Themes, and Outline. State at the end: 'Note: This response comes from my general knowledge database.'"
-                                else:
-                                    formatted_prompt = f"You are the scholarly Bible Study Chatbot. Please answer the following question strictly IN {lang_name} using your general knowledge: {original_query}"
-                                
-                                llm_result = llm.invoke(formatted_prompt)
-                                answer = llm_result.content.strip()
-                                source = "ai_general"
-                                is_general_knowledge = True
-                            
-                                usage = extract_token_usage(llm_result, formatted_prompt)
-                                tokens_used += usage["total"]
-                            except Exception as e:
-                                print(f"AI Fallback Failed: {e}", flush=True)
-                                raise e
+                            tokens_used += ai_tokens
 
-        # Clean up disclaimers so they do not duplicate in bubble text
-        for d in [DISCLAIMER_UNFOLDING, DISCLAIMER_AI, "⚠️ *This is an AI-generated response based on the unfoldingWord dataset.*", "🤖 *This response based on the unfoldingWord dataset.*"]:
-            if d in answer:
-                answer = answer.replace(d, "").strip()
+            # Clean up disclaimers
+            for d in ALL_DISCLAIMERS:
+                if d in answer:
+                    answer = answer.replace(d, "").strip()
+
+            # Update Token Status
+            if tokens_used > 0:
+                stats = check_and_update_rate_limits()
+                stats["total_tokens_used"] += tokens_used
+                stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
+                save_tokens_data(stats)
+
+        except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "503" in err_str or "unavailable" in err_str or "high traffic" in err_str:
+                error_obj = ChatError(status=True, tag="high traffic", message="The AI model is currently experiencing high demand. Please try again later.")
+            elif "exhausted" in err_str or "limit" in err_str or "quota" in err_str:
+                error_obj = ChatError(status=True, tag="exceed data limit", message="Your free tier data quota has been exceeded.")
+            else:
+                error_obj = ChatError(status=True, tag="system error", message=f"An unexpected API error occurred: {e}")
+            print(f"API Chat Error Catch: {e}", flush=True)
+            answer = "⚠️ " + error_obj.message
+            source = "ai_general"
+
+        # Suggested Questions
+        suggested = []
+        records = DatasetRepository.load_dataset_records(book_code)
+        if records:
+            asked_set = {normalize_text(original_query)}
+            if request.history:
+                for h in request.history:
+                    asked_set.add(normalize_text(h))
             
-        if tokens_used > 0:
-            stats = check_and_update_rate_limits()
-            stats["total_tokens_used"] += tokens_used
-            stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
-            save_tokens_data(stats)
-
-    except Exception as e:
-        err_str = str(e).lower()
-        if "429" in err_str or "503" in err_str or "unavailable" in err_str or "high traffic" in err_str:
-            error_obj = ChatError(status=True, tag="high traffic", message="The AI model is currently experiencing high demand. Please try again later.")
-        elif "exhausted" in err_str or "limit" in err_str or "quota" in err_str:
-            error_obj = ChatError(status=True, tag="exceed data limit", message="Your free tier data quota has been exceeded.")
-        else:
-            error_obj = ChatError(status=True, tag="system error", message=f"An unexpected API error occurred: {e}")
-        print(f"API Chat Error Catch: {e}", flush=True)
-        answer = "⚠️ " + error_obj.message
-        source = "ai_general"
-
-    suggested = []
-    if records:
-        curr_chapter, curr_verse = parse_reference(top_ref)
-        
-        # Filter out the current query to avoid suggesting the question we just asked
-        norm_query = normalize_text(original_query)
-        valid_records = [
-            r for r in records 
-            if normalize_text(r["Question"]) != norm_query and r["Question"].strip()
-        ]
-        
-        if valid_records:
-            # Try to get questions from the same chapter first
-            chapter_records = []
-            other_records = []
-            for r in valid_records:
-                ch, v = parse_reference(r["Reference"])
-                if ch == curr_chapter:
-                    chapter_records.append((r, ch, v))
-                else:
-                    other_records.append((r, ch, v))
+            valid_records = [r for r in records if normalize_text(r["Question"]) not in asked_set]
             
-            # If we have chapter records, sort them by distance to current verse.
-            # We prefer verses at or after current verse, then before.
+            curr_chapter = 1
+            if ":" in top_ref:
+                try:
+                    curr_chapter = int(top_ref.split(":")[0])
+                except ValueError:
+                    pass
+            
+            chapter_records = [r for r in valid_records if r["Reference"].startswith(f"{curr_chapter}:")]
             if chapter_records:
-                chapter_records.sort(key=lambda x: (
-                    0 if x[2] >= curr_verse else 1, # Prefer current or later verses
-                    abs(x[2] - curr_verse)          # Closer distance first
-                ))
-                suggested = [x[0]["Question"] for x in chapter_records[:3]]
-            
-            # If we still need more suggestions, take from other chapters, sorted by chapter proximity
-            if len(suggested) < 3:
-                other_records.sort(key=lambda x: (
-                    0 if x[1] >= curr_chapter else 1, # Prefer later chapters
-                    abs(x[1] - curr_chapter),         # Closer chapter distance first
-                    x[2]                              # Earlier verses in that chapter
-                ))
-                for x in other_records:
-                    if len(suggested) >= 3:
+                suggested = [x["Question"] for x in chapter_records[:3]]
+            else:
+                for next_ch in range(curr_chapter + 1, curr_chapter + 10):
+                    next_records = [r for r in valid_records if r["Reference"].startswith(f"{next_ch}:")]
+                    if next_records:
+                        suggested = [x["Question"] for x in next_records[:3]]
                         break
-                    if x[0]["Question"] not in suggested:
-                        suggested.append(x[0]["Question"])
+                
+                if not suggested and valid_records:
+                    suggested = [x["Question"] for x in valid_records[:3]]
 
-    if len(suggested) < 3:
-        suggested = ["What does this passage mean?", "How can I apply this?", "Tell me more about the context."]
-    # --- MongoDB Persistence ---
-    try:
-        db = get_database()
-        if db is not None:
-            user_id = "default_user"
-            session_id = f"{user_id}_{book_code}"
-            
-            # Format timestamp exactly like frontend (HH:MM AM/PM or just 2-digit)
-            # Frontend uses new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            # But UTC ISO format is safer for the database. We will use ISO and frontend can parse it.
-            iso_timestamp = datetime.now(timezone.utc).isoformat()
-            
-            # Create the history array elements for this turn
-            turn_history = [
-                {
-                    "sender": "user",
-                    "text": original_query,
-                    "timestamp": iso_timestamp
-                },
-                {
-                    "sender": "ai",
-                    "text": answer,
-                    "timestamp": iso_timestamp,
-                    "versesHighlighted": [top_ref.split(":")[1]] if ":" in top_ref else [],
-                    "source": source
-                }
-            ]
-            
-            await db.chat_sessions.update_one(
-                {"session_id": session_id},
-                {
-                    "$set": {
-                        "user_id": user_id,
-                        "book_code": book_code,
-                        "updated_at": datetime.now(timezone.utc)
-                    },
-                    "$setOnInsert": {
-                        "created_at": datetime.now(timezone.utc)
-                    },
-                    "$push": {
-                        "history": {"$each": turn_history}
-                    }
-                },
-                upsert=True
-            )
-    except Exception as e:
-        print(f"MongoDB Persistence Error: {e}", flush=True)
+        if len(suggested) < 3:
+            suggested = ["What does this passage mean?", "How can I apply this?", "Tell me more about the context."]
 
-    return ChatResponse(
-        answer=answer,
-        reference=top_ref,
-        suggested_questions=suggested[:3],
-        is_general_knowledge=is_general_knowledge,
-        tokens_used=tokens_used,
-        total_tokens_used=stats.get("total_tokens_used", 0),
-        pending_tokens=stats.get("pending_tokens", 0),
-        requests_today=stats.get("requests_today", 0),
-        requests_this_minute=stats.get("requests_this_minute", 0),
-        source=source,
-        error=error_obj
-    )
+        # MongoDB Persistence
+        await ChatSessionRepository.save_turn(book_code, original_query, answer, top_ref, source)
 
-class QARecord(BaseModel):
-    Reference: str
-    Question: str
-    Response: str
+        # Final result event
+        result = {
+            "answer": answer,
+            "reference": top_ref,
+            "suggested_questions": suggested[:3],
+            "is_general_knowledge": is_general_knowledge,
+            "tokens_used": tokens_used,
+            "total_tokens_used": stats.get("total_tokens_used", 0),
+            "pending_tokens": stats.get("pending_tokens", 0),
+            "requests_today": stats.get("requests_today", 0),
+            "requests_this_minute": stats.get("requests_this_minute", 0),
+            "source": source,
+            "error": {"status": error_obj.status, "tag": error_obj.tag, "message": error_obj.message}
+        }
+        yield f"event: result\ndata: {json.dumps(result)}\n\n"
 
-class BookDatasetResponse(BaseModel):
-    book: str
-    total_questions: int
-    data: List[QARecord]
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
 
 @app.get("/api/dataset/{book}", response_model=BookDatasetResponse)
 async def get_book_dataset(book: str):
     book_code = normalize_book_code(book).upper()
-    
-    # Check paths: 1. data/en_tq/tq_{book}.tsv, 2. static_data/tq_{book}.csv, 3. static_data/tq_MAT.csv
-    tsv_filename = f"tq_{book_code}.tsv"
-    tsv_path = os.path.join(DATA_DIR, "en_tq", tsv_filename)
-    
-    if not os.path.exists(tsv_path):
-        # Look in static_data for book csv
-        csv_filename = f"tq_{book_code}.csv"
-        csv_path = os.path.join(STATIC_DATA_DIR, csv_filename)
-        if os.path.exists(csv_path):
-            tsv_path = csv_path
-        else:
-            # Fall back to Matthew
-            tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
-            
-    if not os.path.exists(tsv_path):
+    records = DatasetRepository.load_dataset_records(book_code)
+    if not records:
         raise HTTPException(status_code=404, detail=f"No dataset found for book {book_code}")
         
-    try:
-        is_tsv = tsv_path.endswith('.tsv')
-        records = []
-        with open(tsv_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f, delimiter='\t' if is_tsv else ',')
-            
-            # Normalize column names
-            normalized_fieldnames = []
-            for field in (reader.fieldnames or []):
-                field_clean = field.strip()
-                if field_clean.lower() == 'reference': field_clean = 'Reference'
-                elif field_clean.lower() == 'question': field_clean = 'Question'
-                elif field_clean.lower() == 'response': field_clean = 'Response'
-                normalized_fieldnames.append(field_clean)
-            reader.fieldnames = normalized_fieldnames
-            
-            for row in reader:
-                records.append({
-                    "Reference": str(row.get("Reference") or "1:1").strip() or "1:1",
-                    "Question": str(row.get("Question") or "").strip(),
-                    "Response": str(row.get("Response") or "").strip()
-                })
-            
-        return BookDatasetResponse(
-            book=book_code,
-            total_questions=len(records),
-            data=records
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read dataset: {str(e)}")
+    return BookDatasetResponse(
+        book=book_code,
+        total_questions=len(records),
+        data=records
+    )
 
-
-class TokenStatusResponse(BaseModel):
-    total_tokens_used: int
-    pending_tokens: int
-    limit: int
-    requests_today: int
-    requests_this_minute: int
-    rpm_limit: int = 15
-    rpd_limit: int = 1500
 
 @app.get("/api/tokens", response_model=TokenStatusResponse)
 async def get_tokens_endpoint():
-    # Dry check resets
     data = load_tokens_data()
+    # Dry check resets (handled in check_and_update_rate_limits, but for read-only here)
+    import time
     now = time.time()
-    
-    # Check day reset
     if now - data.get("last_day_reset_time", 0.0) >= 86400:
         data["requests_today"] = 0
         data["last_day_reset_time"] = now
         data["pending_tokens"] = data["limit"]
         save_tokens_data(data)
-        
-    # Check minute reset
     if now - data.get("last_minute_reset_time", 0.0) >= 60:
         data["requests_this_minute"] = 0
         data["last_minute_reset_time"] = now
@@ -1080,19 +324,21 @@ async def get_tokens_endpoint():
         requests_this_minute=data["requests_this_minute"]
     )
 
+
 @app.post("/api/tokens/reset", response_model=TokenStatusResponse)
 async def reset_tokens_endpoint():
+    import time
+    from config import TOKEN_BUDGET_DEFAULT
     default_data = {
         "total_tokens_used": 0,
-        "pending_tokens": 1000000,
-        "limit": 1000000,
+        "pending_tokens": TOKEN_BUDGET_DEFAULT,
+        "limit": TOKEN_BUDGET_DEFAULT,
         "requests_today": 0,
         "requests_this_minute": 0,
         "last_minute_reset_time": time.time(),
         "last_day_reset_time": time.time()
     }
     save_tokens_data(default_data)
-    print("RAG System: Token metrics reset to defaults successfully.")
     return TokenStatusResponse(
         total_tokens_used=default_data["total_tokens_used"],
         pending_tokens=default_data["pending_tokens"],
@@ -1101,11 +347,6 @@ async def reset_tokens_endpoint():
         requests_this_minute=default_data["requests_this_minute"]
     )
 
-from dotenv import set_key
-
-class EnvUpdateRequest(BaseModel):
-    key: str
-    value: str
 
 @app.post("/api/settings/env")
 async def update_env(request: EnvUpdateRequest):
@@ -1115,45 +356,18 @@ async def update_env(request: EnvUpdateRequest):
     
     env_path = os.path.join(BACKEND_DIR, ".env")
     try:
+        from dotenv import set_key
         set_key(env_path, request.key, request.value)
     except Exception as e:
         print(f"RAG System: Failed to write to .env file ({e})")
         
     os.environ[request.key] = request.value
-    
-    global GEMINI_KEY, OPENAI_KEY
-    if request.key == "GEMINI_API_KEY":
-        GEMINI_KEY = request.value
-    elif request.key == "OPENAI_API_KEY":
-        OPENAI_KEY = request.value
-        
     return {"status": "success", "message": f"{request.key} updated successfully"}
 
-def normalize_book_code(book: str) -> str:
-    book_clean = book.upper().replace(" ", "").replace("_", "").strip()
-    mapping = {
-        "GENESIS": "GEN", "EXODUS": "EXO", "LEVITICUS": "LEV", "NUMBERS": "NUM", "DEUTERONOMY": "DEU",
-        "JOSHUA": "JOS", "JUDGES": "JDG", "RUTH": "RUT", "1SAMUEL": "1SA", "2SAMUEL": "2SA",
-        "1KINGS": "1KI", "2KINGS": "2KI", "1CHRONICLES": "1CH", "2CHRONICLES": "2CH", "EZRA": "EZR",
-        "NEHEMIAH": "NEH", "ESTHER": "EST", "JOB": "JOB", "PSALMS": "PSA", "PSALM": "PSA", "PROVERBS": "PRO",
-        "ECCLESIASTES": "ECC", "SONGOFSOLOMON": "SNG", "SONGOFSONGS": "SNG", "CANTICLES": "SNG",
-        "ISAIAH": "ISA", "JEREMIAH": "JER", "LAMENTATIONS": "LAM", "EZEKIEL": "EZK", "DANIEL": "DAN",
-        "HOSEA": "HOS", "JOEL": "JOL", "AMOS": "AMO", "OBADIAH": "OBA", "JONAH": "JON",
-        "MICAH": "MIC", "NAHUM": "NAM", "HABAKKUK": "HAB", "ZEPHANIAH": "ZEP", "HAGGAI": "HAG",
-        "ZECHARIAH": "ZEC", "MALACHI": "MAL",
-        "MATTHEW": "MAT", "MARK": "MRK", "LUKE": "LUK", "JOHN": "JHN", "ACTS": "ACT",
-        "ROMANS": "ROM", "1CORINTHIANS": "1CO", "2CORINTHIANS": "2CO", "GALATIANS": "GAL",
-        "EPHESIANS": "EPH", "PHILIPPIANS": "PHP", "COLOSSIANS": "COL", "1THESSALONIANS": "1TH",
-        "2THESSALONIANS": "2TH", "1TIMOTHY": "1TI", "2TIMOTHY": "2TI", "TITUS": "TIT",
-        "PHILEMON": "PHM", "HEBREWS": "HEB", "JAMES": "JAS", "1PETER": "1PE", "2PETER": "2PE",
-        "1JOHN": "1JN", "2JOHN": "2JN", "3JOHN": "3JN", "JUDE": "JUD", "REVELATION": "REV", "APOCALYPSE": "REV"
-    }
-    return mapping.get(book_clean, book_clean[:3])
 
 def parse_html_to_verses(html: str) -> list:
     """Splits API.Bible HTML into verse objects."""
     matches = list(re.finditer(r'<span[^>]*data-number="(\d+)"[^>]*>.*?</span>', html))
-    
     if not matches:
         matches = list(re.finditer(r'<span[^>]*class="v"[^>]*>(\d+)</span>', html))
         
@@ -1176,32 +390,20 @@ def parse_html_to_verses(html: str) -> list:
         
         if verse_text:
             verses.append({"verse": verse_num, "text": verse_text})
-            
     return verses
+
 
 @app.get("/api/scripture/{book}/{chapter}")
 async def get_scripture(book: str, chapter: int):
-    """Fetches scripture text from MongoDB or falls back to API.Bible."""
     book_code = normalize_book_code(book)
     
-    # Mode 1: Try MongoDB Atlas collection
-    try:
-        db = get_database()
-        if db is not None:
-            collection = db["scripture_text"]
-            doc = await collection.find_one({"book": book_code, "chapter": chapter})
-            
-            if doc and "verses" in doc:
-                return {
-                    "book": book,
-                    "chapter": chapter,
-                    "verses": doc["verses"],
-                    "source": "mongodb"
-                }
-    except Exception as e:
-        print(f"Failed to fetch scripture from MongoDB: {e}")
+    # Mode 1: MongoDB
+    doc = await ScriptureRepository.get_scripture(book_code, chapter)
+    if doc:
+        return doc
         
     # Mode 2: Dynamic API.Bible fetch
+    from config import BIBLE_API_KEY, BIBLE_API_URL, BIBLE_ID
     if BIBLE_API_KEY:
         try:
             base_url = BIBLE_API_URL
@@ -1209,14 +411,9 @@ async def get_scripture(book: str, chapter: int):
                 base_url = f"{base_url}/v1"
                 
             api_url = f"{base_url}/bibles/{BIBLE_ID}/chapters/{book_code}.{chapter}?content-type=html&include-notes=false&include-titles=false"
-            print(f"Bible API Dynamic Fetch: Requesting live scripture from {api_url}...")
-            
             req = urllib.request.Request(
                 api_url,
-                headers={
-                    "api-key": BIBLE_API_KEY,
-                    "User-Agent": "VachanStudyBibleChatbot/1.0"
-                }
+                headers={"api-key": BIBLE_API_KEY, "User-Agent": "VachanStudyBibleChatbot/2.0"}
             )
             
             with urllib.request.urlopen(req, timeout=8) as response:
@@ -1228,28 +425,7 @@ async def get_scripture(book: str, chapter: int):
             if html_content:
                 parsed_verses = parse_html_to_verses(html_content)
                 if parsed_verses:
-                    print(f"Bible API Dynamic Fetch Success: Loaded {len(parsed_verses)} verses dynamically!")
-                    
-                    # Store in MongoDB for future fast reads
-                    try:
-                        db = get_database()
-                        if db is not None:
-                            collection = db["scripture_text"]
-                            await collection.update_one(
-                                {"book": book_code, "chapter": chapter},
-                                {"$set": {
-                                    "book": book_code,
-                                    "chapter": chapter,
-                                    "reference": reference,
-                                    "verses": parsed_verses,
-                                    "cached_at": datetime.now(timezone.utc)
-                                }},
-                                upsert=True
-                            )
-                            print(f"Scripture cached in MongoDB for {book_code} {chapter}", flush=True)
-                    except Exception as cache_err:
-                        print(f"Failed to cache scripture in MongoDB: {cache_err}", flush=True)
-                        
+                    await ScriptureRepository.cache_scripture(book_code, chapter, reference, parsed_verses)
                     return {
                         "book": book_code,
                         "chapter": chapter,
@@ -1257,9 +433,8 @@ async def get_scripture(book: str, chapter: int):
                         "verses": parsed_verses
                     }
         except Exception as e:
-            print(f"Bible API Dynamic Fetch Exception ({e}). Serving placeholder context...")
+            print(f"Bible API Fetch Exception ({e}).")
 
-    # 3. Static placeholder fallback if all else fails
     return {
         "book": book_code,
         "chapter": chapter,
@@ -1270,70 +445,25 @@ async def get_scripture(book: str, chapter: int):
         ]
     }
 
+
 @app.get("/api/history/{book}")
 async def get_history(book: str):
-    """Fetches the chat history for a specific book."""
-    try:
-        db = get_database()
-        if db is None:
-            return {"history": []}
-            
-        book_code = normalize_book_code(book)
-        user_id = "default_user"
-        session_id = f"{user_id}_{book_code}"
-        
-        session = await db.chat_sessions.find_one({"session_id": session_id})
-        
-        if session and "history" in session:
-            # We need to map MongoDB history to Frontend Message type
-            history = session["history"]
-            
-            frontend_messages = []
-            for i, msg in enumerate(history):
-                frontend_messages.append({
-                    "id": f"{msg['sender']}-{session_id}-{i}",
-                    "sender": msg["sender"],
-                    "text": msg["text"],
-                    "timestamp": msg.get("timestamp", ""),
-                    "versesHighlighted": msg.get("versesHighlighted", []),
-                    "source": msg.get("source", "dataset_native")
-                })
-                
-            return {"history": frontend_messages}
-            
-        return {"history": []}
-    except Exception as e:
-        print(f"MongoDB Fetch History Error: {e}")
-        return {"history": []}
+    book_code = normalize_book_code(book)
+    history = await ChatSessionRepository.get_history(book_code)
+    return {"history": history}
+
 
 @app.delete("/api/history/{book}")
 async def delete_history(book: str):
-    """Deletes the chat history for a specific book."""
-    try:
-        db = get_database()
-        if db is None:
-            raise HTTPException(status_code=500, detail="Database connection not established.")
-            
-        book_code = normalize_book_code(book)
-        user_id = "default_user"
-        session_id = f"{user_id}_{book_code}"
-        
-        result = await db.chat_sessions.delete_one({"session_id": session_id})
-        
-        if result.deleted_count > 0:
-            return {"status": "success", "message": f"Chat history for {book} deleted successfully."}
-        else:
-            return {"status": "success", "message": "No chat history found to delete."}
-    except Exception as e:
-        print(f"MongoDB Delete History Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete chat history: {str(e)}")
+    book_code = normalize_book_code(book)
+    deleted = await ChatSessionRepository.delete_history(book_code)
+    if deleted:
+        return {"status": "success", "message": f"Chat history for {book} deleted successfully."}
+    return {"status": "success", "message": "No chat history found to delete."}
+
 
 if __name__ == "__main__":
     import uvicorn
-    host = os.environ.get("HOST", "127.0.0.1")
-    port = int(os.environ.get("PORT", "8000"))
-    reload_flag = os.environ.get("RELOAD", "True").lower() == "true"
-    print(f"RAG Server: Starting Uvicorn on {host}:{port} (reload={reload_flag})...")
-    uvicorn.run("api.index:app", host=host, port=port, reload=reload_flag)
-
-
+    from config import HOST, PORT, RELOAD
+    print(f"RAG Server V2: Starting Uvicorn on {HOST}:{PORT} (reload={RELOAD})...")
+    uvicorn.run("api.index:app", host=HOST, port=PORT, reload=RELOAD)

@@ -50,7 +50,7 @@ interface Message {
   versesHighlighted?: string[];
   isCustom?: boolean;
   isGeneralKnowledge?: boolean;
-  source?: "dataset_native" | "translated_from_en" | "ai_general";
+  source?: "dataset_native" | "dataset_verified" | "translated_from_en" | "dataset_translated" | "ai_general" | string;
 }
 
 // Helper to translate full book names into standard 3-letter USFM codes
@@ -193,6 +193,9 @@ export default function Workspace({
 
   // Audio recording simulation state
   const [isRecording, setIsRecording] = useState(false);
+
+  // Live SSE status text shown in the loading bubble
+  const [loadingStatus, setLoadingStatus] = useState("");
 
   // Chat list auto scroll reference
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -404,7 +407,7 @@ export default function Workspace({
     setActiveHighlights(getInitialHighlightsForBook(selectedBook));
   };
 
-  // 🔌 3. Robust async handleSendMessage connecting Frontend UI to live RAG API
+  // 🔌 3. Robust async handleSendMessage connecting Frontend UI to live RAG API (SSE Streaming)
   const handleSendMessage = async (text: string) => {
     if (!text.trim()) return;
 
@@ -418,18 +421,19 @@ export default function Workspace({
     setMessages(prev => [...prev, newUserMessage]);
     setInputValue("");
     setIsLoading(true);
+    setLoadingStatus("");
 
     const apiURL = getApiUrl();
 
     try {
-      console.log(`API Chat Request: Sending query to ${apiURL}/api/chat...`);
+      console.log(`API Chat Request: Sending SSE query to ${apiURL}/api/chat...`);
       
       // Extract all previous user questions in the current chat session
       const userQueryHistory = messages
         .filter((msg) => msg.sender === "user")
         .map((msg) => msg.text);
 
-      // 2. Make POST fetch request to backend
+      // 2. Make POST fetch request to backend (SSE streaming)
       const response = await fetch(`${apiURL}/api/chat`, {
         method: "POST",
         headers: {
@@ -446,41 +450,87 @@ export default function Workspace({
         throw new Error(`HTTP Error Status ${response.status}`);
       }
 
-      const data = await response.json();
+      // 3. Parse SSE stream for real-time status updates
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No response body stream");
+      
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalData: any = null;
 
-      // Update parent token metrics if available in response
-      if (onUpdateTokens && typeof data.total_tokens_used === "number") {
-        onUpdateTokens(
-          data.tokens_used || 0,
-          data.total_tokens_used,
-          data.pending_tokens,
-          data.requests_today || 0,
-          data.requests_this_minute || 0
-        );
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        // Parse complete SSE events from buffer
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+        
+        for (const part of parts) {
+          const lines = part.split("\n");
+          let eventType = "";
+          let eventData = "";
+          
+          for (const line of lines) {
+            if (line.startsWith("event: ")) {
+              eventType = line.substring(7).trim();
+            } else if (line.startsWith("data: ")) {
+              eventData = line.substring(6);
+            }
+          }
+          
+          if (eventType === "status" && eventData) {
+            setLoadingStatus(eventData);
+            console.log(`SSE Status: ${eventData}`);
+          } else if (eventType === "result" && eventData) {
+            try {
+              finalData = JSON.parse(eventData);
+              console.log("SSE Result received.");
+            } catch (e) {
+              console.warn("Failed to parse SSE result JSON:", e);
+            }
+          }
+        }
       }
 
-      // 3. Append the AI's answer
-      const newAIMessage: Message = {
-        id: `ai-${Date.now()}`,
-        sender: "ai",
-        text: data.answer,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        versesHighlighted: data.reference ? [data.reference.split(":")[1]] : [],
-        isGeneralKnowledge: data.is_general_knowledge || false,
-        source: data.source as "dataset_native" | "translated_from_en" | "ai_general"
-      };
-      setMessages(prev => [...prev, newAIMessage]);
+      // 4. Process the final result
+      if (finalData) {
+        // Update parent token metrics
+        if (onUpdateTokens && typeof finalData.total_tokens_used === "number") {
+          onUpdateTokens(
+            finalData.tokens_used || 0,
+            finalData.total_tokens_used,
+            finalData.pending_tokens,
+            finalData.requests_today || 0,
+            finalData.requests_this_minute || 0
+          );
+        }
 
-      // 4. Update suggested questions chips
-      if (data.suggested_questions) {
-        setSuggestedQuestions(data.suggested_questions);
-      }
+        // Append the AI's answer
+        const newAIMessage: Message = {
+          id: `ai-${Date.now()}`,
+          sender: "ai",
+          text: finalData.answer,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          versesHighlighted: finalData.reference ? [finalData.reference.split(":")[1]] : [],
+          isGeneralKnowledge: finalData.is_general_knowledge || false,
+          source: finalData.source as string
+        };
+        setMessages(prev => [...prev, newAIMessage]);
 
-      // 5. Update active reference and scroll reader pane
-      if (data.reference) {
-        const verseStr = data.reference.split(":")[1];
-        if (verseStr) {
-          setActiveHighlights([verseStr]);
+        // Update suggested questions chips
+        if (finalData.suggested_questions) {
+          setSuggestedQuestions(finalData.suggested_questions);
+        }
+
+        // Update active reference and scroll reader pane
+        if (finalData.reference) {
+          const verseStr = finalData.reference.split(":")[1];
+          if (verseStr) {
+            setActiveHighlights([verseStr]);
+          }
         }
       }
 
@@ -511,6 +561,7 @@ export default function Workspace({
 
     } finally {
       setIsLoading(false);
+      setLoadingStatus("");
     }
   };
 
@@ -836,7 +887,10 @@ export default function Workspace({
                   {message.source === "dataset_native" && (
                     <div className="text-[11px] font-medium text-green-600 dark:text-green-500 flex items-center gap-1"><span>✅</span> Retrieval from native dataset</div>
                   )}
-                  {message.source === "translated_from_en" && (
+                  {message.source === "dataset_verified" && (
+                    <div className="text-[11px] font-medium text-green-600 dark:text-green-500 flex items-center gap-1"><span>✅</span> Retrieval from native dataset (AI Verified)</div>
+                  )}
+                  {(message.source === "translated_from_en" || message.source === "dataset_translated") && (
                     <div className="text-[11px] font-medium text-amber-600 dark:text-amber-500 flex items-center gap-1"><span>⚠️</span> AI translated from English source</div>
                   )}
                   {message.source === "ai_general" && (
@@ -847,22 +901,35 @@ export default function Workspace({
             );
           })}
 
-          {/* Glowing Typing Loader Bubble (Shown when isLoading is true) */}
+          {/* Glowing Typing Loader Bubble with Live SSE Status (Shown when isLoading is true) */}
           <AnimatePresence>
             {isLoading && (
               <motion.div
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className="flex gap-3 max-w-[80%] mr-auto"
+                className="flex gap-3 max-w-[85%] mr-auto"
               >
-                <div className="w-5.5 h-5.5 rounded-full bg-[#fce5c7] dark:bg-amber-900/60 border border-amber-500/20 flex items-center justify-center text-[10px] font-bold text-stone-800 dark:text-amber-500 animate-pulse">
+                <div className="w-5.5 h-5.5 rounded-full bg-[#fce5c7] dark:bg-amber-900/60 border border-amber-500/20 flex items-center justify-center text-[10px] font-bold text-stone-800 dark:text-amber-500 animate-pulse shrink-0 mt-1">
                   AI
                 </div>
-                <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 flex items-center gap-1.5 shadow-inner">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-bounce shadow-md shadow-amber-500/35" style={{ animationDelay: "0ms" }} />
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-bounce shadow-md shadow-amber-500/35" style={{ animationDelay: "150ms" }} />
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-bounce shadow-md shadow-amber-500/35" style={{ animationDelay: "300ms" }} />
+                <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 shadow-inner flex flex-col gap-2 min-w-[140px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce shadow-md shadow-amber-500/35" style={{ animationDelay: "0ms" }} />
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce shadow-md shadow-amber-500/35" style={{ animationDelay: "150ms" }} />
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce shadow-md shadow-amber-500/35" style={{ animationDelay: "300ms" }} />
+                  </div>
+                  {loadingStatus && (
+                    <motion.p
+                      key={loadingStatus}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="text-[11px] text-zinc-500 dark:text-zinc-400 font-mono leading-snug"
+                    >
+                      {loadingStatus}
+                    </motion.p>
+                  )}
                 </div>
               </motion.div>
             )}

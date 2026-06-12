@@ -1,0 +1,128 @@
+"""
+Vachan Study Bible Chatbot — Re-ranker Service
+Handles Cross-Encoder re-ranking and LLM semantic verification.
+"""
+
+import re
+from typing import List, Dict, Any, Optional
+from config import RERANK_HIGH_THRESHOLD, RERANK_MEDIUM_THRESHOLD
+
+
+def rerank_candidates(query: str, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Re-ranks search candidates using a Cross-Encoder model.
+    
+    This function currently serves as a placeholder for a self-hosted BGE-Reranker.
+    If a reranker is not available, it uses the real Atlas Vector Search score
+    to determine confidence, allowing high-scoring matches to bypass LLM verification.
+    """
+    if not candidates:
+        return []
+        
+    # Placeholder for self-hosted bge-reranker-v2-m3
+    # try:
+    #     from sentence_transformers import CrossEncoder
+    #     model = CrossEncoder('BAAI/bge-reranker-v2-m3')
+    #     pairs = [[query, c["question"]] for c in candidates]
+    #     scores = model.predict(pairs)
+    #     for i, c in enumerate(candidates):
+    #         c["rerank_score"] = float(scores[i])
+    #     candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
+    #     return candidates
+    # except ImportError:
+    #     pass
+    
+    # Use the real Atlas Vector Search score if available.
+    # This allows high-confidence matches (≥0.85) to skip LLM verification entirely.
+    for c in candidates:
+        atlas_score = c.get("score", 0.0)
+        if atlas_score > 0:
+            c["rerank_score"] = atlas_score
+        else:
+            # No real score available — assign medium so LLM verifier handles it
+            c["rerank_score"] = 0.60
+    
+    # Sort by rerank_score descending (best match first)
+    candidates.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
+        
+    return candidates
+
+
+async def verify_match_llm(query: str, candidate_question: str, llm) -> bool:
+    """Uses an LLM to verify if a candidate question is semantically identical to the user query."""
+    if not llm:
+        return False
+        
+    prompt = f"""You are a semantic matching verification engine. 
+Are these two questions asking for the exact same information?
+Two questions are SEMANTICALLY EQUIVALENT if they ask about the same thing, even if:
+- One is active voice, the other passive
+- Word order, synonyms, or phrasing differs
+- One is in a different language
+
+Query 1: {query}
+Query 2: {candidate_question}
+
+Respond with ONLY "YES" if they are semantically equivalent, or "NO" if they are not."""
+
+    from services.key_rotation import get_key_rotator
+    from services.ai_generation import get_llm_instance, _is_rate_limit_error
+    
+    rotator = get_key_rotator()
+    max_attempts = max(rotator.total_keys, 1)
+    
+    for attempt in range(max_attempts):
+        try:
+            result = llm.invoke(prompt)
+            text = result.content.strip().upper()
+            rotator.report_success()
+            return "YES" in text
+        except Exception as e:
+            if _is_rate_limit_error(e):
+                rotator.report_rate_limited()
+                # Rebuild LLM with next key
+                llm = get_llm_instance("gemini")
+                if not llm:
+                    print(f"LLM Verification: All keys exhausted.")
+                    return False
+                continue
+            print(f"LLM Verification Error: {e}")
+            return False
+    
+    return False
+
+
+async def decide_best_match(query: str, candidates: List[Dict[str, Any]], llm) -> tuple[Optional[Dict[str, Any]], str, int]:
+    """Decides the best match based on re-ranker scores and LLM verification.
+    
+    Returns:
+        tuple: (best_candidate, source_label, tokens_used)
+    """
+    if not candidates:
+        return None, "no_match", 0
+        
+    best = candidates[0]
+    score = best.get("rerank_score", 0.0)
+    tokens_used = 0
+    
+    # HIGH confidence
+    if score >= RERANK_HIGH_THRESHOLD:
+        print(f"Re-ranker HIGH confidence ({score:.2f}) for: {best['question']}")
+        return best, "dataset_native", tokens_used
+        
+    # MEDIUM confidence
+    if score >= RERANK_MEDIUM_THRESHOLD:
+        print(f"Re-ranker MEDIUM confidence ({score:.2f}). Running LLM Verification...")
+        is_match = await verify_match_llm(query, best["question"], llm)
+        
+        # Approximate tokens for LLM Verification
+        prompt_len = 500 + len(query) + len(best["question"])
+        tokens_used += max(1, int(prompt_len / 4)) + 10
+        
+        if is_match:
+            print(f"LLM Verification Confirmed match for: {best['question']}")
+            return best, "dataset_verified", tokens_used
+        else:
+            print("LLM Verification Rejected match.")
+            
+    # LOW confidence
+    return None, "no_match", tokens_used
