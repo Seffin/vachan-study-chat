@@ -4,7 +4,7 @@ Welcome to the frontend engineering documentation for the **Vachan Study Bible S
 
 ## Current Architecture Alignment
 
-The frontend is a Next.js and TypeScript experience that combines three core interaction surfaces: a scripture navigator, a chat workspace, and a scripture reading pane. The main workspace component manages conversation state, suggested follow-up questions, active verse highlights, and the current book and chapter selection. Its chat flow is built around a streaming request to the backend, and the UI updates in real time as status events arrive. The experience is also designed to feel voice-first, with a microphone button that can drive the same chat flow as typed input.
+The frontend is a Next.js and TypeScript experience that combines three core interaction surfaces: a scripture navigator, a chat workspace, and a scripture reading pane. The main workspace component manages conversation state, suggested follow-up questions, active verse highlights, and the current book and chapter selection. Its chat flow is built around a streaming request to the backend, and the UI updates in real time as status events arrive. The experience is also designed to feel voice-first, utilizing the `MediaRecorder` API to capture `.webm` audio blobs and send them to the backend for robust, cross-browser transcription via Gemini.
 
 ---
 
