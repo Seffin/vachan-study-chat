@@ -3,83 +3,19 @@ Vachan Study Bible Chatbot — Rate Limiter & Token Tracker Service
 Manages Gemini free tier rate limits (15 RPM, 1500 RPD) and token budget tracking.
 """
 
-import os
-import json
 import time
-from config import TOKENS_FILE, RATE_LIMIT_RPM, RATE_LIMIT_RPD, TOKEN_BUDGET_DEFAULT, DATA_DIR
-
-# In-memory backup dictionary to guarantee zero-fail operation
-_in_memory_tokens = None
-
-
-def _get_default_data() -> dict:
-    return {
-        "total_tokens_used": 0,
-        "pending_tokens": TOKEN_BUDGET_DEFAULT,
-        "limit": TOKEN_BUDGET_DEFAULT,
-        "requests_today": 0,
-        "requests_this_minute": 0,
-        "last_minute_reset_time": time.time(),
-        "last_day_reset_time": time.time()
-    }
+from config import RATE_LIMIT_RPM, RATE_LIMIT_RPD
+from db.repositories import MetricsRepository
 
 
 def load_tokens_data() -> dict:
-    """Loads token tracking data from file or in-memory backup."""
-    global _in_memory_tokens
-    default_data = _get_default_data()
-
-    # Ensure parent directory exists
-    tokens_dir = os.path.dirname(TOKENS_FILE)
-    if tokens_dir:
-        try:
-            os.makedirs(tokens_dir, exist_ok=True)
-        except Exception as e:
-            print(f"RAG System: Failed to create tokens directory {tokens_dir} ({e}). Using in-memory state fallback.")
-            if _in_memory_tokens is None:
-                _in_memory_tokens = default_data.copy()
-            return _in_memory_tokens
-
-    # If already using in-memory backup, return it
-    if _in_memory_tokens is not None:
-        for key, val in default_data.items():
-            if key not in _in_memory_tokens:
-                _in_memory_tokens[key] = val
-        return _in_memory_tokens
-
-    if not os.path.exists(TOKENS_FILE):
-        try:
-            with open(TOKENS_FILE, "w", encoding="utf-8") as f:
-                json.dump(default_data, f)
-            return default_data
-        except Exception as e:
-            print(f"Error creating tokens file ({e}). Falling back to in-memory dictionary.")
-            _in_memory_tokens = default_data.copy()
-            return _in_memory_tokens
-
-    try:
-        with open(TOKENS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for key, val in default_data.items():
-            if key not in data:
-                data[key] = val
-        return data
-    except Exception as e:
-        print(f"Error loading tokens file ({e}). Falling back to in-memory state.")
-        if _in_memory_tokens is None:
-            _in_memory_tokens = default_data.copy()
-        return _in_memory_tokens
+    """Loads global token tracking data from MongoDB."""
+    return MetricsRepository.get_metrics()
 
 
 def save_tokens_data(data: dict):
-    """Saves token tracking data to file and in-memory backup."""
-    global _in_memory_tokens
-    _in_memory_tokens = data
-    try:
-        with open(TOKENS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-    except Exception as e:
-        print(f"Error saving tokens file ({e}). Token state is preserved in-memory.")
+    """Saves global token tracking data to MongoDB."""
+    MetricsRepository.save_metrics(data)
 
 
 def is_rate_limited() -> tuple:

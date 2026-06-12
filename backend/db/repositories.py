@@ -244,3 +244,70 @@ class KeyRepository:
             {"$set": {"cooldown_until": 0.0}}
         )
         return result.modified_count > 0
+
+
+class MetricsRepository:
+    """Repository for managing global AI token usage and system limits."""
+    
+    @staticmethod
+    def _get_default_data() -> Dict[str, Any]:
+        import time
+        from config import TOKEN_BUDGET_DEFAULT
+        return {
+            "total_tokens_used": 0,
+            "pending_tokens": TOKEN_BUDGET_DEFAULT,
+            "limit": TOKEN_BUDGET_DEFAULT,
+            "requests_today": 0,
+            "requests_this_minute": 0,
+            "last_minute_reset_time": time.time(),
+            "last_day_reset_time": time.time()
+        }
+
+    @staticmethod
+    def get_metrics() -> Dict[str, Any]:
+        from db.mongodb import get_sync_database
+        db = get_sync_database()
+        default_data = MetricsRepository._get_default_data()
+        
+        if db is None:
+            return default_data
+            
+        collection = db["system_metrics"]
+        doc = collection.find_one({"_id": "global_metrics"})
+        
+        if not doc:
+            # Create default document if it doesn't exist
+            default_data["_id"] = "global_metrics"
+            try:
+                collection.insert_one(default_data)
+            except Exception:
+                pass
+            return default_data
+            
+        # Ensure all default keys exist
+        for key, val in default_data.items():
+            if key not in doc:
+                doc[key] = val
+                
+        return doc
+
+    @staticmethod
+    def save_metrics(data: Dict[str, Any]) -> bool:
+        from db.mongodb import get_sync_database
+        db = get_sync_database()
+        if db is None:
+            return False
+            
+        collection = db["system_metrics"]
+        
+        # Ensure _id is set correctly
+        update_data = data.copy()
+        if "_id" in update_data:
+            del update_data["_id"]
+            
+        result = collection.update_one(
+            {"_id": "global_metrics"},
+            {"$set": update_data},
+            upsert=True
+        )
+        return result.upserted_id is not None or result.modified_count > 0
