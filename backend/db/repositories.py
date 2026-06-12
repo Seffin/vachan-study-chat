@@ -1,0 +1,181 @@
+"""
+Vachan Study Bible Chatbot — MongoDB Repositories
+Data access layer for MongoDB collections.
+"""
+
+import csv
+import os
+import re
+from datetime import datetime, timezone
+from typing import List, Dict, Any, Optional
+
+from config import DATA_DIR, STATIC_DATA_DIR, normalize_book_code
+from db.mongodb import get_database
+
+
+class ChatSessionRepository:
+    """Repository for managing chat sessions and history."""
+    
+    @staticmethod
+    async def get_history(book_code: str, user_id: str = "default_user") -> List[Dict[str, Any]]:
+        db = get_database()
+        if db is None:
+            return []
+            
+        session_id = f"{user_id}_{book_code}"
+        session = await db.chat_sessions.find_one({"session_id": session_id})
+        
+        if session and "history" in session:
+            history = session["history"]
+            frontend_messages = []
+            for i, msg in enumerate(history):
+                frontend_messages.append({
+                    "id": f"{msg['sender']}-{session_id}-{i}",
+                    "sender": msg["sender"],
+                    "text": msg["text"],
+                    "timestamp": msg.get("timestamp", ""),
+                    "versesHighlighted": msg.get("versesHighlighted", []),
+                    "source": msg.get("source", "dataset_native")
+                })
+            return frontend_messages
+        return []
+
+    @staticmethod
+    async def save_turn(book_code: str, user_query: str, answer: str, top_ref: str, source: str, user_id: str = "default_user"):
+        db = get_database()
+        if db is None:
+            return
+            
+        session_id = f"{user_id}_{book_code}"
+        iso_timestamp = datetime.now(timezone.utc).isoformat()
+        
+        turn_history = [
+            {
+                "sender": "user",
+                "text": user_query,
+                "timestamp": iso_timestamp
+            },
+            {
+                "sender": "ai",
+                "text": answer,
+                "timestamp": iso_timestamp,
+                "versesHighlighted": [top_ref.split(":")[1]] if ":" in top_ref else [],
+                "source": source
+            }
+        ]
+        
+        await db.chat_sessions.update_one(
+            {"session_id": session_id},
+            {
+                "$set": {
+                    "user_id": user_id,
+                    "book_code": book_code,
+                    "updated_at": datetime.now(timezone.utc)
+                },
+                "$setOnInsert": {
+                    "created_at": datetime.now(timezone.utc)
+                },
+                "$push": {
+                    "history": {"$each": turn_history}
+                }
+            },
+            upsert=True
+        )
+
+    @staticmethod
+    async def delete_history(book_code: str, user_id: str = "default_user") -> bool:
+        db = get_database()
+        if db is None:
+            raise Exception("Database connection not established.")
+            
+        session_id = f"{user_id}_{book_code}"
+        result = await db.chat_sessions.delete_one({"session_id": session_id})
+        return result.deleted_count > 0
+
+
+class ScriptureRepository:
+    """Repository for fetching and caching scripture text."""
+    
+    @staticmethod
+    async def get_scripture(book_code: str, chapter: int) -> Optional[Dict[str, Any]]:
+        db = get_database()
+        if db is None:
+            return None
+            
+        collection = db["scripture_text"]
+        doc = await collection.find_one({"book": book_code, "chapter": chapter})
+        
+        if doc and "verses" in doc:
+            return {
+                "book": book_code,
+                "chapter": chapter,
+                "verses": doc["verses"],
+                "source": "mongodb"
+            }
+        return None
+
+    @staticmethod
+    async def cache_scripture(book_code: str, chapter: int, reference: str, verses: List[Dict[str, Any]]):
+        db = get_database()
+        if db is None:
+            return
+            
+        collection = db["scripture_text"]
+        await collection.update_one(
+            {"book": book_code, "chapter": chapter},
+            {"$set": {
+                "book": book_code,
+                "chapter": chapter,
+                "reference": reference,
+                "verses": verses,
+                "cached_at": datetime.now(timezone.utc)
+            }},
+            upsert=True
+        )
+
+
+class DatasetRepository:
+    """Repository for offline dataset records (CSV/TSV fallback)."""
+    
+    @staticmethod
+    def load_dataset_records(book_code: str) -> list:
+        book_code = normalize_book_code(book_code).upper()
+        tsv_filename = f"tq_{book_code}.tsv"
+        tsv_path = os.path.join(DATA_DIR, "en_tq", tsv_filename)
+        
+        if not os.path.exists(tsv_path):
+            csv_filename = f"tq_{book_code}.csv"
+            csv_path = os.path.join(STATIC_DATA_DIR, csv_filename)
+            if os.path.exists(csv_path):
+                tsv_path = csv_path
+            else:
+                tsv_path = os.path.join(STATIC_DATA_DIR, "tq_MAT.csv")
+                
+        if not os.path.exists(tsv_path):
+            return []
+            
+        try:
+            is_tsv = tsv_path.endswith('.tsv')
+            records = []
+            with open(tsv_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f, delimiter='\t' if is_tsv else ',')
+                
+                normalized_fieldnames = []
+                for field in (reader.fieldnames or []):
+                    field_clean = field.strip()
+                    if field_clean.lower() == 'reference': field_clean = 'Reference'
+                    elif field_clean.lower() == 'question': field_clean = 'Question'
+                    elif field_clean.lower() == 'response': field_clean = 'Response'
+                    normalized_fieldnames.append(field_clean)
+                reader.fieldnames = normalized_fieldnames
+                
+                for row in reader:
+                    records.append({
+                        "Reference": str(row.get("Reference") or "1:1").strip() or "1:1",
+                        "Question": str(row.get("Question") or "").strip(),
+                        "Response": str(row.get("Response") or "").strip()
+                    })
+            return records
+        except Exception as e:
+            print(f"Error loading dataset records: {e}")
+            return []

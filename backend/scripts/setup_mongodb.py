@@ -58,20 +58,28 @@ async def setup_db():
         }
     }
     
-    vector_schema = {
+    qa_dataset_schema = {
         "$jsonSchema": {
             "bsonType": "object",
-            "required": ["book_code", "lang_code", "reference", "question", "response", "embedding"],
+            "required": ["book_code", "lang_code", "reference", "chapter", "verse", "question", "response", "search_text", "embedding"],
             "properties": {
                 "book_code": {"bsonType": "string"},
                 "lang_code": {"bsonType": "string"},
                 "reference": {"bsonType": "string"},
+                "chapter": {"bsonType": "int"},
+                "verse": {"bsonType": "int"},
                 "question": {"bsonType": "string"},
                 "response": {"bsonType": "string"},
+                "paraphrases": {
+                    "bsonType": "array",
+                    "items": {"bsonType": "string"}
+                },
+                "search_text": {"bsonType": "string"},
                 "embedding": {
                     "bsonType": "array",
                     "items": {"bsonType": "double"}
-                }
+                },
+                "metadata": {"bsonType": "object"}
             }
         }
     }
@@ -83,17 +91,7 @@ async def setup_db():
             "properties": {
                 "book": {"bsonType": "string"},
                 "chapter": {"bsonType": "int"},
-                "verses": {
-                    "bsonType": "array",
-                    "items": {
-                        "bsonType": "object",
-                        "required": ["verse", "text"],
-                        "properties": {
-                            "verse": {"bsonType": "int"},
-                            "text": {"bsonType": "string"}
-                        }
-                    }
-                }
+                "verses": {"bsonType": "array"}
             }
         }
     }
@@ -112,10 +110,10 @@ async def setup_db():
     else:
         await db.command("collMod", "chat_sessions", validator=chat_session_schema)
         
-    if "vector_embeddings" not in collections:
-        await db.create_collection("vector_embeddings", validator=vector_schema)
+    if "qa_dataset" not in collections:
+        await db.create_collection("qa_dataset", validator=qa_dataset_schema)
     else:
-        await db.command("collMod", "vector_embeddings", validator=vector_schema)
+        await db.command("collMod", "qa_dataset", validator=qa_dataset_schema)
         
     if "scripture_text" not in collections:
         await db.create_collection("scripture_text", validator=scripture_schema)
@@ -128,7 +126,9 @@ async def setup_db():
     await db.chat_sessions.create_index("session_id", unique=True)
     await db.chat_sessions.create_index("user_id")
     await db.chat_sessions.create_index("book_code")
-    await db.vector_embeddings.create_index([("book_code", 1), ("lang_code", 1)])
+    await db.qa_dataset.create_index([("book_code", 1), ("lang_code", 1)])
+    await db.qa_dataset.create_index([("book_code", 1), ("chapter", 1)])
+    await db.qa_dataset.create_index("lang_code")
     await db.scripture_text.create_index([("book", 1), ("chapter", 1)])
     
     print("MongoDB setup complete with schemas and indexes!")
