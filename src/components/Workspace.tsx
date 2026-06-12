@@ -217,6 +217,8 @@ export default function Workspace({
   
   // TTS State
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  const activeMsgIdRef = useRef<string | null>(null);
   const [playingMsgId, setPlayingMsgId] = useState<string | null>(null);
 
   const getVoiceErrorMessage = (error: string | undefined) => {
@@ -461,14 +463,16 @@ export default function Workspace({
       activeAudioRef.current.pause();
       activeAudioRef.current = null;
     }
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
+    // Also stop any global background audio
+    if (globalAudioRef.current) {
+      globalAudioRef.current.pause();
     }
     setPlayingMsgId(null);
+    activeMsgIdRef.current = null;
   };
 
   const speakText = (text: string, msgId: string) => {
-    if (playingMsgId === msgId) {
+    if (activeMsgIdRef.current === msgId) {
       // Toggle off if already playing
       stopAudio();
       return;
@@ -477,10 +481,11 @@ export default function Workspace({
     // Stop any other currently playing audio before starting new
     stopAudio();
     setPlayingMsgId(msgId);
+    activeMsgIdRef.current = msgId;
 
     // Clean up text
     const cleanText = text
-      .replace(/[#>*_`~]/g, "")
+      .replace(/[#>*_`~"'“”‘’]/g, "")
       .replace(/\[(.*?)\]\(.*?\)/g, "$1")
       .replace(/[\u{1F600}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "") 
       .replace(/\s+/g, " ")
@@ -488,62 +493,65 @@ export default function Workspace({
 
     if (!cleanText) return;
 
-    // Stop any existing native TTS just in case
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
+    // We no longer chunk text. Send the entire paragraph/text via POST to avoid URL limits.
+    const fetchAndPlay = async () => {
+      try {
+        const response = await fetch(`${getApiUrl()}/api/tts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: cleanText })
+        });
 
-    const sentences = cleanText.match(/[^.!?]+[.!?]+/g) || [cleanText];
-    let currentIndex = 0;
+        if (!response.ok) throw new Error("TTS Request Failed");
 
-    const playNext = () => {
-      if (currentIndex >= sentences.length) return;
-      
-      const chunk = sentences[currentIndex].trim();
-      if (!chunk) {
-        currentIndex++;
-        playNext();
-        return;
+        const data = await response.json();
+        if (activeMsgIdRef.current !== msgId) return; // Cancelled during fetch
+
+        // Use correct audio/mpeg MIME type for MP3
+        const url = "data:audio/mpeg;base64," + data.audio_base64;
+        const audio = globalAudioRef.current || new Audio();
+        audio.src = url;
+        audio.load(); // Ensure the base64 data is loaded into the element
+        activeAudioRef.current = audio;
+
+        audio.onended = () => {
+          if (activeMsgIdRef.current === msgId) {
+            setPlayingMsgId(null);
+            activeMsgIdRef.current = null;
+          }
+        };
+
+        audio.onerror = (e) => {
+          if (activeMsgIdRef.current !== msgId) return;
+          alert("Audio format error: The browser refused to decode the MP3 data.");
+          setPlayingMsgId(null);
+          activeMsgIdRef.current = null;
+        };
+
+        await audio.play();
+      } catch (e) {
+        console.error("Audio fetch blocked", e);
+        if (activeMsgIdRef.current !== msgId) return;
+        
+        // Removed broken native fallback so we can actually see the real error!
+        alert("Audio Play Error: " + (e as Error).message);
+        setPlayingMsgId(null);
+        activeMsgIdRef.current = null;
       }
-
-      // Bypass all browser restrictions by streaming MP3 directly from our own backend
-      const url = `${getApiUrl()}/api/tts?text=${encodeURIComponent(chunk.substring(0, 200))}`;
-      const audio = new Audio(url);
-      activeAudioRef.current = audio;
-      
-      audio.onended = () => {
-        if (playingMsgId !== msgId) return; // Cancelled
-        currentIndex++;
-        playNext();
-      };
-      
-      const fallbackToNative = () => {
-        if (playingMsgId !== msgId) return; // Cancelled
-        if (typeof window !== "undefined" && "speechSynthesis" in window) {
-          const utterance = new SpeechSynthesisUtterance(chunk);
-          utterance.onend = () => { if (playingMsgId === msgId) { currentIndex++; playNext(); } };
-          utterance.onerror = () => { if (playingMsgId === msgId) { currentIndex++; playNext(); } };
-          window.speechSynthesis.speak(utterance);
-        } else {
-          currentIndex++;
-          playNext();
-        }
-      };
-      
-      audio.onerror = fallbackToNative;
-
-      audio.play().catch(e => {
-        console.error("Audio playback blocked", e);
-        fallbackToNative();
-      });
     };
 
-    playNext();
+    fetchAndPlay();
   };
 
   // 🔌 3. Robust async handleSendMessage connecting Frontend UI to live RAG API (SSE Streaming)
   const handleSendMessage = async (text: string) => {
     if (!text.trim()) return;
+
+    // Autoplay Unlocker Hack: Play silent audio on user interaction to whitelist the audio element for later async AI responses
+    if (globalAudioRef.current) {
+      globalAudioRef.current.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+      globalAudioRef.current.play().catch(() => {});
+    }
 
     // 1. Immediately append the user's message to the state and clear input field
     const newUserMessage: Message = {
@@ -701,9 +709,14 @@ export default function Workspace({
     }
   };
 
-  // Toggle voice recording input
   const toggleRecording = async () => {
     if (typeof window === "undefined") return;
+
+    // Autoplay Unlocker Hack: Play silent audio on user interaction to whitelist the audio element for later async AI responses
+    if (globalAudioRef.current && !isRecording) {
+      globalAudioRef.current.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+      globalAudioRef.current.play().catch(() => {});
+    }
 
     if (isRecording) {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
@@ -1529,7 +1542,7 @@ export default function Workspace({
           </>
         )}
       </AnimatePresence>
-
+      <audio ref={globalAudioRef} className="hidden" />
     </div>
   );
 }

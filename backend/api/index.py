@@ -480,23 +480,38 @@ async def delete_history(book: str):
         return {"status": "success", "message": f"Chat history for {book} deleted successfully."}
     return {"status": "success", "message": "No chat history found to delete."}
 
-@app.get("/api/tts")
-async def text_to_speech(text: str, lang: str = "en"):
+from pydantic import BaseModel
+
+class TTSRequest(BaseModel):
+    text: str
+
+@app.post("/api/tts")
+async def text_to_speech(req: TTSRequest):
     """Generates MP3 audio using gTTS to bypass browser restrictions."""
     try:
-        from fastapi.responses import StreamingResponse
+        from fastapi.responses import JSONResponse
         import io
         from gtts import gTTS
+        from services.translation import detect_user_language
         
+        text = req.text
         if not text.strip():
             raise HTTPException(status_code=400, detail="Text cannot be empty")
+            
+        # Automatically detect language (e.g. 'ml' for Malayalam, 'hi' for Hindi)
+        lang_code, _ = detect_user_language(text)
+        print(f"TTS Request: Lang detected as '{lang_code}' for text: {text[:50]}...", flush=True)
         
-        tts = gTTS(text=text, lang=lang, slow=False)
+        tts = gTTS(text=text, lang=lang_code, slow=False)
         audio_fp = io.BytesIO()
         tts.write_to_fp(audio_fp)
-        audio_fp.seek(0)
         
-        return StreamingResponse(audio_fp, media_type="audio/mpeg")
+        audio_data = audio_fp.getvalue()
+        import base64
+        b64 = base64.b64encode(audio_data).decode("utf-8")
+        print(f"TTS Generated successfully. Base64 length: {len(b64)} bytes.", flush=True)
+        
+        return {"audio_base64": b64}
     except Exception as e:
         print(f"TTS Error: {e}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))
