@@ -34,6 +34,7 @@ The legacy local FAISS vector indices have been completely replaced with **Mongo
   - The `embedding` field contains exactly 768-dimension vectors (truncated from Gemini's native 3072 dimensions) using Matryoshka Representation Learning to save 75% storage space.
 - **`chat_history`**: Persistent user conversation logs, organized by `session_id` and `book`.
 - **`api_keys`**: Stateless Gemini token tracking. Synchronizes rate-limit `cooldown_until` timestamps across all parallel Vercel instances to prevent overlapping crashes.
+- **`system_metrics`**: Global token usage tracking and API rate limits, perfectly synchronizing budget metrics across ephemeral serverless containers.
 
 **Search Indices:**
 - `vector_index`: Performs semantic similarity search on the `embedding` field.
@@ -89,8 +90,6 @@ Logos Bible Study Chatbot/
     │   └── index.py                # Main FastAPI router & SSE endpoints
     ├── core/
     │   └── config.py               # Environment & system configurations
-    ├── data/
-    │   └── tokens.json             # Key rotator state management (Deprecated by api_keys)
     ├── db/
     │   ├── mongodb.py              # MongoDB Atlas connection manager
     │   └── repositories.py         # Data access classes (ChatSession, KeyRepository)

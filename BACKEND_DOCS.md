@@ -79,6 +79,20 @@ Fetches or purges the user's conversation history for the current session from t
 }
 ```
 
+### `system_metrics` (Global Token Tracking)
+```json
+{
+  "_id": "global_metrics",
+  "total_tokens_used": 77987,
+  "pending_tokens": 986938,
+  "limit": 1000000,
+  "requests_today": 20,
+  "requests_this_minute": 1,
+  "last_minute_reset_time": 1781277611.72,
+  "last_day_reset_time": 1781252772.20
+}
+```
+
 ---
 
 ## 🚀 Deployment (Vercel)
