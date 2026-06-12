@@ -179,3 +179,68 @@ class DatasetRepository:
         except Exception as e:
             print(f"Error loading dataset records: {e}")
             return []
+
+
+class KeyRepository:
+    """Repository for managing API keys and rate limit cooldowns in MongoDB."""
+    
+    @staticmethod
+    def get_all_keys() -> List[Dict[str, Any]]:
+        from db.mongodb import get_sync_database
+        db = get_sync_database()
+        if db is None:
+            return []
+            
+        collection = db["api_keys"]
+        keys = list(collection.find({"provider": "gemini"}))
+        return keys
+
+    @staticmethod
+    def add_key(token: str) -> bool:
+        from db.mongodb import get_sync_database
+        db = get_sync_database()
+        if db is None:
+            return False
+            
+        collection = db["api_keys"]
+        result = collection.update_one(
+            {"token": token, "provider": "gemini"},
+            {"$setOnInsert": {
+                "token": token,
+                "provider": "gemini",
+                "cooldown_until": 0.0,
+                "created_at": datetime.now(timezone.utc)
+            }},
+            upsert=True
+        )
+        return result.upserted_id is not None or result.matched_count > 0
+
+    @staticmethod
+    def mark_rate_limited(token: str, cooldown_seconds: int = 60) -> bool:
+        import time
+        from db.mongodb import get_sync_database
+        db = get_sync_database()
+        if db is None:
+            return False
+            
+        collection = db["api_keys"]
+        cooldown_timestamp = time.time() + cooldown_seconds
+        result = collection.update_one(
+            {"token": token, "provider": "gemini"},
+            {"$set": {"cooldown_until": cooldown_timestamp}}
+        )
+        return result.modified_count > 0
+
+    @staticmethod
+    def report_success(token: str) -> bool:
+        from db.mongodb import get_sync_database
+        db = get_sync_database()
+        if db is None:
+            return False
+            
+        collection = db["api_keys"]
+        result = collection.update_one(
+            {"token": token, "provider": "gemini"},
+            {"$set": {"cooldown_until": 0.0}}
+        )
+        return result.modified_count > 0
