@@ -40,12 +40,58 @@ async def translate_text(text: str, target_language: str, llm) -> str:
         The translated text string.
     """
     prompt = f"Translate the following text to {target_language}. Output ONLY the translation, nothing else:\n\n{text}"
-    result = llm.invoke(prompt)
-    return result.content.strip()
+    
+    from services.key_rotation import get_key_rotator
+    from services.ai_generation import get_llm_instance, _is_rate_limit_error
+    
+    rotator = get_key_rotator()
+    max_attempts = max(rotator.total_keys, 1)
+    
+    for attempt in range(max_attempts):
+        try:
+            result = llm.invoke(prompt)
+            rotator.report_success()
+            return result.content.strip()
+        except Exception as e:
+            if _is_rate_limit_error(e):
+                rotator.report_rate_limited()
+                # Rebuild LLM with next key
+                llm = get_llm_instance("gemini")
+                if not llm:
+                    print("Translation: All keys exhausted.")
+                    return text # Fallback to original
+                continue
+            print(f"Translation Error: {e}")
+            return text # Fallback to original
+            
+    return text
 
 
 async def translate_to_english(text: str, llm) -> str:
     """Convenience wrapper to translate text to English."""
     prompt = f"Translate the following text to English, output ONLY the translation:\n{text}"
-    result = llm.invoke(prompt)
-    return result.content.strip()
+    
+    from services.key_rotation import get_key_rotator
+    from services.ai_generation import get_llm_instance, _is_rate_limit_error
+    
+    rotator = get_key_rotator()
+    max_attempts = max(rotator.total_keys, 1)
+    
+    for attempt in range(max_attempts):
+        try:
+            result = llm.invoke(prompt)
+            rotator.report_success()
+            return result.content.strip()
+        except Exception as e:
+            if _is_rate_limit_error(e):
+                rotator.report_rate_limited()
+                # Rebuild LLM with next key
+                llm = get_llm_instance("gemini")
+                if not llm:
+                    print("Translation: All keys exhausted.")
+                    return text # Fallback to original
+                continue
+            print(f"Translation Error: {e}")
+            return text # Fallback to original
+            
+    return text
