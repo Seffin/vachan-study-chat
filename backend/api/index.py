@@ -26,7 +26,7 @@ from schemas.responses import ChatResponse, ChatError, BookDatasetResponse, Toke
 
 from services.translation import detect_user_language, translate_text, translate_to_english
 from services.rate_limiter import is_rate_limited, check_and_update_rate_limits, load_tokens_data, save_tokens_data
-from services.ai_generation import generate_ai_answer, get_active_provider, get_llm_instance, transcribe_audio
+from services.ai_generation import generate_ai_answer, get_active_provider, get_llm_instance, transcribe_audio, rewrite_query_with_context
 from services.embedding import get_embeddings_model
 from services.retrieval import hybrid_search
 from services.reranker import rerank_candidates, decide_best_match
@@ -174,7 +174,20 @@ async def chat_endpoint(request: ChatRequest):
         tokens_used = 0
         stats = load_tokens_data()
 
-        is_overview = is_overview_query(original_query)
+        active_provider = get_active_provider()
+        llm = get_llm_instance(active_provider)
+        embeddings_model = get_embeddings_model(active_provider)
+
+        # Intercept and rewrite query using history
+        active_query = original_query
+        if request.history and not rate_limited and tokens_data["pending_tokens"] > 0:
+            yield f"event: status\ndata: Analyzing conversation context...\n\n"
+            active_query = await rewrite_query_with_context(original_query, request.history, llm)
+            if active_query != original_query:
+                print(f"Rewritten Query: '{active_query}'", flush=True)
+                yield f"event: status\ndata: Understood as: '{active_query}'\n\n"
+
+        is_overview = is_overview_query(active_query)
         
         answer = ""
         top_ref = "1:1"
@@ -182,11 +195,7 @@ async def chat_endpoint(request: ChatRequest):
         is_general_knowledge = False
         error_obj = ChatError(status=False)
         
-        active_provider = get_active_provider()
-        llm = get_llm_instance(active_provider)
-        embeddings_model = get_embeddings_model(active_provider)
-
-        diagram_task = asyncio.create_task(generate_mermaid_diagram(original_query, book_code, lang_name, llm))
+        diagram_task = asyncio.create_task(generate_mermaid_diagram(active_query, book_code, lang_name, llm))
 
         try:
             # Step 0: Overview Fast-Path
@@ -202,21 +211,21 @@ async def chat_endpoint(request: ChatRequest):
                 if embeddings_model and not rate_limited and tokens_data["pending_tokens"] > 0:
                     yield f"event: status\ndata: Generating query embedding...\n\n"
                     try:
-                        query_embedding = embeddings_model.embed_query(original_query)
+                        query_embedding = embeddings_model.embed_query(active_query)
                     except Exception as e:
                         print(f"Embedding generation failed: {e}")
                 
                 # Step 1: Native Language Hybrid Search
                 yield f"event: status\ndata: Searching {lang_name} dataset...\n\n"
-                candidates = await hybrid_search(original_query, query_embedding, book_code, lang_code, k=10)
+                candidates = await hybrid_search(active_query, query_embedding, book_code, lang_code, k=10)
                 
                 # Step 2: Re-rank Candidates
                 if candidates:
                     yield f"event: status\ndata: Ranking {len(candidates)} candidates...\n\n"
-                ranked_candidates = rerank_candidates(original_query, candidates)
+                ranked_candidates = rerank_candidates(active_query, candidates)
                 
                 # Step 3: Confidence Decision
-                best_match, source_label, verify_tokens = await decide_best_match(original_query, ranked_candidates, llm)
+                best_match, source_label, verify_tokens = await decide_best_match(active_query, ranked_candidates, llm)
                 tokens_used += verify_tokens
                 
                 if best_match:
@@ -234,8 +243,8 @@ async def chat_endpoint(request: ChatRequest):
                         
                         # Translate query to English
                         yield f"event: status\ndata: Translating query to English...\n\n"
-                        en_query = await translate_to_english(original_query, llm)
-                        tokens_used += max(1, int(len(original_query)/4)) + 10
+                        en_query = await translate_to_english(active_query, llm)
+                        tokens_used += max(1, int(len(active_query)/4)) + 10
                         
                         # English Embedding & Hybrid Search
                         en_embedding = []
@@ -263,7 +272,7 @@ async def chat_endpoint(request: ChatRequest):
                         else:
                             yield f"event: status\ndata: No dataset match. Generating AI response...\n\n"
                             print("English dataset missed. Falling back to AI Generation...")
-                            answer, ai_tokens = await generate_ai_answer(original_query, lang_name, book_code, is_overview, active_provider)
+                            answer, ai_tokens = await generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider)
                             source = "ai_general"
                             tokens_used += ai_tokens
                     else:
@@ -274,7 +283,7 @@ async def chat_endpoint(request: ChatRequest):
                         else:
                             yield f"event: status\ndata: No dataset match. Generating AI response...\n\n"
                             print("Falling back to AI Generation...")
-                            answer, ai_tokens = await generate_ai_answer(original_query, lang_name, book_code, is_overview, active_provider)
+                            answer, ai_tokens = await generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider)
                             source = "ai_general"
                             is_general_knowledge = True
                             tokens_used += ai_tokens
@@ -310,7 +319,8 @@ async def chat_endpoint(request: ChatRequest):
             asked_set = {normalize_text(original_query)}
             if request.history:
                 for h in request.history:
-                    asked_set.add(normalize_text(h))
+                    if h.role == "user":
+                        asked_set.add(normalize_text(h.content))
             
             valid_records = [r for r in records if normalize_text(r["Question"]) not in asked_set]
             

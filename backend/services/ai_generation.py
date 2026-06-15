@@ -58,6 +58,58 @@ def _is_rate_limit_error(e: Exception) -> bool:
     ])
 
 
+async def rewrite_query_with_context(query: str, history: list, llm) -> str:
+    """Rewrites a user's query into a standalone query using the chat history."""
+    if not history or not llm:
+        return query
+        
+    history_text = ""
+    for msg in history[-4:]: # Only take the last 4 turns for context
+        role = "User" if msg.role == "user" else "AI"
+        history_text += f"{role}: {msg.content}\n"
+        
+    prompt = f"""Given the following conversation history, rewrite the final User question into a standalone, context-independent query that can be understood without the conversation history.
+If the final user question is already standalone and does not contain any pronouns (like 'this', 'he', 'it', 'passage', 'here'), return it EXACTLY as it is.
+Do NOT answer the question. ONLY return the rewritten question.
+
+Conversation History:
+{history_text}
+
+Final User Question: {query}
+Rewritten Query:"""
+
+    try:
+        active_provider = get_active_provider()
+        if active_provider == "gemini":
+            from services.key_rotation import get_key_rotator
+            from google import genai
+            from config import GEMINI_MODEL
+            rotator = get_key_rotator()
+            max_attempts = max(rotator.total_keys, 1)
+            
+            for attempt in range(max_attempts):
+                key = rotator.get_active_key()
+                if not key: break
+                try:
+                    client = genai.Client(api_key=key)
+                    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+                    rewritten = response.text.strip() if response.text else query
+                    rotator.report_success()
+                    return rewritten
+                except Exception as e:
+                    if _is_rate_limit_error(e):
+                        rotator.report_rate_limited()
+                        continue
+                    break
+        else:
+            response = await llm.ainvoke(prompt)
+            return response.content.strip() if hasattr(response, 'content') else str(response).strip()
+    except Exception as e:
+        print(f"Query rewrite failed: {e}")
+        
+    return query
+
+
 async def generate_ai_answer(
     query: str,
     lang_name: str,

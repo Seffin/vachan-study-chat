@@ -600,10 +600,11 @@ export default function Workspace({
     try {
       console.log(`API Chat Request: Sending SSE query to ${apiURL}/api/chat...`);
       
-      // Extract all previous user questions in the current chat session
-      const userQueryHistory = messages
-        .filter((msg) => msg.sender === "user")
-        .map((msg) => msg.text);
+      // Extract the last 6 messages (3 turns) for conversational memory
+      const chatHistory = messages.slice(-6).map((msg) => ({
+        role: msg.sender,
+        content: msg.text
+      }));
 
       // 2. Make POST fetch request to backend (SSE streaming)
       const response = await fetch(`${apiURL}/api/chat`, {
@@ -614,7 +615,7 @@ export default function Workspace({
         body: JSON.stringify({
           book: getBookCode(selectedBook),
           message: text,
-          history: userQueryHistory
+          history: chatHistory
         })
       });
 
