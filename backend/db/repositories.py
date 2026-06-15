@@ -35,13 +35,14 @@ class ChatSessionRepository:
                     "text": msg["text"],
                     "timestamp": msg.get("timestamp", ""),
                     "versesHighlighted": msg.get("versesHighlighted", []),
-                    "source": msg.get("source", "dataset_native")
+                    "source": msg.get("source", "dataset_native"),
+                    "diagram": msg.get("diagram")
                 })
             return frontend_messages
         return []
 
     @staticmethod
-    async def save_turn(book_code: str, user_query: str, answer: str, top_ref: str, source: str, user_id: str = "default_user"):
+    async def save_turn(book_code: str, user_query: str, answer: str, top_ref: str, source: str, diagram: dict = None, user_id: str = "default_user"):
         db = get_database()
         if db is None:
             return
@@ -49,19 +50,23 @@ class ChatSessionRepository:
         session_id = f"{user_id}_{book_code}"
         iso_timestamp = datetime.now(timezone.utc).isoformat()
         
+        ai_message = {
+            "sender": "ai",
+            "text": answer,
+            "timestamp": iso_timestamp,
+            "versesHighlighted": [top_ref.split(":")[1]] if ":" in top_ref else [],
+            "source": source
+        }
+        if diagram:
+            ai_message["diagram"] = diagram
+            
         turn_history = [
             {
                 "sender": "user",
                 "text": user_query,
                 "timestamp": iso_timestamp
             },
-            {
-                "sender": "ai",
-                "text": answer,
-                "timestamp": iso_timestamp,
-                "versesHighlighted": [top_ref.split(":")[1]] if ":" in top_ref else [],
-                "source": source
-            }
+            ai_message
         ]
         
         await db.chat_sessions.update_one(

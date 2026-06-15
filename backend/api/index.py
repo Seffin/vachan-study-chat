@@ -337,14 +337,14 @@ async def chat_endpoint(request: ChatRequest):
         if len(suggested) < 3:
             suggested = ["What does this passage mean?", "How can I apply this?", "Tell me more about the context."]
 
-        # MongoDB Persistence
-        await ChatSessionRepository.save_turn(book_code, original_query, answer, top_ref, source)
-
         diagram_result = None
         try:
             diagram_result = await diagram_task
         except Exception as e:
             print(f"Diagram task error: {e}")
+
+        # MongoDB Persistence
+        await ChatSessionRepository.save_turn(book_code, original_query, answer, top_ref, source, diagram_result)
 
         # Final result event
         result = {
