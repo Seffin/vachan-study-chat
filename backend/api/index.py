@@ -79,7 +79,7 @@ def is_overview_query(query: str) -> bool:
     return False
 
 
-async def generate_mermaid_diagram(query: str, book: str, llm) -> dict:
+async def generate_mermaid_diagram(query: str, book: str, lang_name: str, llm) -> dict:
     if not llm:
         return None
     
@@ -91,6 +91,7 @@ Determine if the user is asking for:
 
 If 1 or 2, generate valid Mermaid.js code for the chart. Do NOT wrap the mermaid code in markdown code blocks. Use graph TD for family_tree and timeline for timeline.
 CRITICAL: To prevent Mermaid syntax errors, ALWAYS wrap node labels in double quotes. For example, use A["Node Name (Extra info)"] instead of A[Node Name (Extra info)].
+CRITICAL: All text inside the Mermaid diagram (node names, timeline events, labels) MUST be written in {lang_name}.
 Return ONLY a valid JSON object in this exact format, with no markdown formatting:
 {{
   "type": "family_tree" | "timeline" | null,
@@ -185,7 +186,7 @@ async def chat_endpoint(request: ChatRequest):
         llm = get_llm_instance(active_provider)
         embeddings_model = get_embeddings_model(active_provider)
 
-        diagram_task = asyncio.create_task(generate_mermaid_diagram(original_query, book_code, llm))
+        diagram_task = asyncio.create_task(generate_mermaid_diagram(original_query, book_code, lang_name, llm))
 
         try:
             # Step 0: Overview Fast-Path
