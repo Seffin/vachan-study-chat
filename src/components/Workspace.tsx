@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { 
   BookOpen, Plus, Settings, HelpCircle, MoreVertical, 
-  Send, Mic, ChevronLeft, Menu, Eye, Sparkles, Check, Trash2, Volume2, Square
+  Send, Mic, ChevronLeft, Menu, Eye, Sparkles, Check, Trash2, Volume2, Square, X
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -898,7 +898,7 @@ export default function Workspace({
       
       {/* Desktop view */}
       <aside 
-        className="hidden md:flex flex-col w-[260px] h-full overflow-hidden shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-[#f8f8f8] dark:bg-zinc-900/60 transition-colors"
+        className="hidden lg:flex flex-col w-[260px] h-full overflow-hidden shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-[#f8f8f8] dark:bg-zinc-900/60 transition-colors"
         aria-label="Scripture Navigator"
       >
         {/* Header */}
@@ -973,14 +973,14 @@ export default function Workspace({
               animate={{ opacity: 0.4 }}
               exit={{ opacity: 0 }}
               onClick={() => setLeftOpen(false)}
-              className="fixed inset-0 z-50 bg-black md:hidden"
+              className="fixed inset-0 z-50 bg-black lg:hidden"
             />
             <motion.aside
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 220 }}
-              className="fixed left-0 top-0 bottom-0 z-50 w-[270px] bg-white dark:bg-zinc-900 flex flex-col shadow-2xl md:hidden"
+              className="fixed left-0 top-0 bottom-0 z-50 w-[270px] bg-white dark:bg-zinc-900 flex flex-col shadow-2xl lg:hidden"
             >
               <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
                 <div>
@@ -1043,7 +1043,7 @@ export default function Workspace({
           <div className="flex items-center gap-2">
             <button 
               onClick={() => setLeftOpen(true)}
-              className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 md:hidden text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-zinc-100 cursor-pointer"
+              className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 lg:hidden text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-zinc-100 cursor-pointer"
               title="Open Navigator"
             >
               <Menu className="w-4 h-4" />
@@ -1057,7 +1057,7 @@ export default function Workspace({
             </button>
             <div className="h-4 w-px bg-stone-200 dark:bg-zinc-800 hidden sm:block mx-1" />
             <h2 className="font-sans font-bold text-stone-950 dark:text-zinc-100 text-sm sm:text-base flex items-center gap-2">
-              <span>Study Assistant</span>
+              <span className="hidden sm:inline">Study Assistant</span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-900 text-zinc-550 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 font-normal">
                 {selectedBook}
               </span>
@@ -1480,14 +1480,14 @@ export default function Workspace({
               animate={{ opacity: 0.4 }}
               exit={{ opacity: 0 }}
               onClick={() => setRightOpen(false)}
-              className="fixed inset-0 z-50 bg-black md:hidden"
+              className="fixed inset-0 z-50 bg-black lg:hidden"
             />
             <motion.aside
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 220 }}
-              className="fixed right-0 top-0 bottom-0 z-50 w-[320px] bg-white dark:bg-zinc-900 flex flex-col shadow-2xl md:hidden"
+              className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-[360px] sm:max-w-[380px] bg-white dark:bg-zinc-900 flex flex-col shadow-2xl lg:hidden"
             >
               <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-1">
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -1523,7 +1523,7 @@ export default function Workspace({
                     <option value="KJV" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-150">KJV</option>
                   </select>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
                   <select
                     value={selectedVerse}
                     onChange={(e) => {
@@ -1537,7 +1537,7 @@ export default function Workspace({
                         setActiveHighlights([]);
                       }
                     }}
-                    className="text-xs px-1.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 focus:outline-none cursor-pointer max-w-[70px] text-zinc-700 dark:text-zinc-300"
+                    className="text-xs px-1 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 focus:outline-none cursor-pointer max-w-[65px] text-zinc-700 dark:text-zinc-300"
                   >
                     <option value="" className="bg-white dark:bg-zinc-900">Verse</option>
                     {scriptureContent.flatMap(section => section.verses).map((v) => (
@@ -1546,8 +1546,8 @@ export default function Workspace({
                       </option>
                     ))}
                   </select>
-                  <button onClick={() => setRightOpen(false)} className="p-2 text-stone-400 hover:text-stone-900 dark:hover:text-zinc-100">
-                    <Eye className="w-5 h-5 text-amber-500" />
+                  <button onClick={() => setRightOpen(false)} className="p-1.5 text-stone-400 hover:text-stone-900 dark:hover:text-zinc-100" title="Close Context">
+                    <X className="w-4 h-4 text-amber-500" />
                   </button>
                 </div>
               </div>
