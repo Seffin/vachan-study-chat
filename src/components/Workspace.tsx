@@ -1171,7 +1171,27 @@ export default function Workspace({
                         h1: ({ node, ...props }) => <h1 className="text-lg font-bold mt-4 mb-2 text-stone-950 dark:text-white" {...props} />,
                         h2: ({ node, ...props }) => <h2 className="text-base font-bold mt-4 mb-2 text-stone-950 dark:text-white" {...props} />,
                         h3: ({ node, ...props }) => <h3 className="text-sm font-bold mt-3 mb-2 text-stone-950 dark:text-white" {...props} />,
-                        a: ({ node, ...props }) => <a className="text-amber-600 hover:text-amber-700 underline" {...props} />
+                        a: ({ node, ...props }) => <a className="text-amber-600 hover:text-amber-700 underline" {...props} />,
+                        table: ({ node, ...props }) => (
+                          <div className="my-4 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm max-w-full">
+                            <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-left text-xs sm:text-sm font-sans" {...props} />
+                          </div>
+                        ),
+                        thead: ({ node, ...props }) => (
+                          <thead className="bg-zinc-50 dark:bg-zinc-900 text-stone-900 dark:text-zinc-100 font-bold" {...props} />
+                        ),
+                        tbody: ({ node, ...props }) => (
+                          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 bg-white/40 dark:bg-zinc-950/10" {...props} />
+                        ),
+                        tr: ({ node, ...props }) => (
+                          <tr className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20 transition-colors" {...props} />
+                        ),
+                        th: ({ node, ...props }) => (
+                          <th className="px-3.5 py-2.5 font-bold uppercase tracking-wider text-[10px] sm:text-[11px] text-stone-500 dark:text-zinc-400" {...props} />
+                        ),
+                        td: ({ node, ...props }) => (
+                          <td className="px-3.5 py-2.5 text-stone-750 dark:text-zinc-300 font-normal leading-relaxed align-top" {...props} />
+                        )
                       }}
                     >
                       {message.text}
