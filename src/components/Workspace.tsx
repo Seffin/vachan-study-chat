@@ -8,9 +8,15 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import dynamic from "next/dynamic";
 import { 
   booksList, matthew1Content, defaultAIResponse, Section 
 } from "../data/mockBible";
+
+const MermaidDiagram = dynamic(() => import("./MermaidDiagram"), {
+  ssr: false,
+  loading: () => <div className="text-center text-xs text-zinc-500 my-4 animate-pulse">Loading diagram...</div>
+});
 
 // Helper to resolve the correct API URL (relative in Vercel production, localhost in development)
 const getApiUrl = () => {
@@ -69,6 +75,10 @@ interface Message {
   isCustom?: boolean;
   isGeneralKnowledge?: boolean;
   source?: "dataset_native" | "dataset_verified" | "translated_from_en" | "dataset_translated" | "ai_general" | string;
+  diagram?: {
+    type: "family_tree" | "timeline" | null;
+    mermaid_code: string;
+  };
 }
 
 // Helper to translate full book names into standard 3-letter USFM codes
@@ -220,6 +230,14 @@ export default function Workspace({
   const globalAudioRef = useRef<HTMLAudioElement | null>(null);
   const activeMsgIdRef = useRef<string | null>(null);
   const [playingMsgId, setPlayingMsgId] = useState<string | null>(null);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
+
+  // Apply playback speed immediately to active audio if it changes
+  useEffect(() => {
+    if (activeAudioRef.current) {
+      activeAudioRef.current.playbackRate = playbackSpeed;
+    }
+  }, [playbackSpeed]);
 
   const getVoiceErrorMessage = (error: string | undefined) => {
     switch (error) {
@@ -483,64 +501,76 @@ export default function Workspace({
     setPlayingMsgId(msgId);
     activeMsgIdRef.current = msgId;
 
-    // Clean up text
+    // Clean up text and expand verse references
     const cleanText = text
       .replace(/[#>*_`~"'“”‘’]/g, "")
       .replace(/\[(.*?)\]\(.*?\)/g, "$1")
       .replace(/[\u{1F600}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "") 
       .replace(/\s+/g, " ")
+      .replace(/\b(\d+):(\d+)\b/g, "chapter $1 verse $2")
       .trim();
 
     if (!cleanText) return;
 
-    // We no longer chunk text. Send the entire paragraph/text via POST to avoid URL limits.
-    const fetchAndPlay = async () => {
+    // Split text into chunks by sentences for faster streaming
+    const sentences = cleanText.match(/[^.!?]+[.!?]+/g) || [cleanText];
+    if (sentences.length === 0) return;
+
+    const playQueue = async () => {
       try {
-        const response = await fetch(`${getApiUrl()}/api/tts`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: cleanText })
-        });
+        let isFirst = true;
+        
+        for (let i = 0; i < sentences.length; i++) {
+          if (activeMsgIdRef.current !== msgId) break; // Check if cancelled
+          
+          const sentence = sentences[i].trim();
+          if (!sentence) continue;
 
-        if (!response.ok) throw new Error("TTS Request Failed");
+          // Fetch the audio for this sentence
+          const response = await fetch(`${getApiUrl()}/api/tts`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: sentence })
+          });
 
-        const data = await response.json();
-        if (activeMsgIdRef.current !== msgId) return; // Cancelled during fetch
+          if (!response.ok) throw new Error("TTS Request Failed");
+          const data = await response.json();
+          if (activeMsgIdRef.current !== msgId) break;
 
-        // Use correct audio/mpeg MIME type for MP3
-        const url = "data:audio/mpeg;base64," + data.audio_base64;
-        const audio = globalAudioRef.current || new Audio();
-        audio.src = url;
-        audio.load(); // Ensure the base64 data is loaded into the element
-        activeAudioRef.current = audio;
+          const url = "data:audio/mpeg;base64," + data.audio_base64;
+          const audio = isFirst && globalAudioRef.current ? globalAudioRef.current : new Audio();
+          isFirst = false;
 
-        audio.onended = () => {
-          if (activeMsgIdRef.current === msgId) {
-            setPlayingMsgId(null);
-            activeMsgIdRef.current = null;
-          }
-        };
+          audio.src = url;
+          audio.playbackRate = playbackSpeed;
+          audio.load();
 
-        audio.onerror = (e) => {
-          if (activeMsgIdRef.current !== msgId) return;
-          alert("Audio format error: The browser refused to decode the MP3 data.");
+          activeAudioRef.current = audio;
+          
+          // We need to await the end of the playback before moving to the next sentence
+          await new Promise<void>((resolve, reject) => {
+            audio.onended = () => resolve();
+            audio.onerror = () => reject(new Error("Audio format error"));
+            audio.play().catch(reject);
+          });
+        }
+        
+        // Final cleanup after all sentences are played
+        if (activeMsgIdRef.current === msgId) {
           setPlayingMsgId(null);
           activeMsgIdRef.current = null;
-        };
+        }
 
-        await audio.play();
       } catch (e) {
         console.error("Audio fetch blocked", e);
         if (activeMsgIdRef.current !== msgId) return;
-        
-        // Removed broken native fallback so we can actually see the real error!
         alert("Audio Play Error: " + (e as Error).message);
         setPlayingMsgId(null);
         activeMsgIdRef.current = null;
       }
     };
 
-    fetchAndPlay();
+    playQueue();
   };
 
   // 🔌 3. Robust async handleSendMessage connecting Frontend UI to live RAG API (SSE Streaming)
@@ -658,7 +688,8 @@ export default function Workspace({
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           versesHighlighted: finalData.reference ? [finalData.reference.split(":")[1]] : [],
           isGeneralKnowledge: finalData.is_general_knowledge || false,
-          source: finalData.source as string
+          source: finalData.source as string,
+          diagram: finalData.diagram
         };
         setMessages(prev => [...prev, newAIMessage]);
         speakText(newAIMessage.text, newAIMessage.id);
@@ -1033,6 +1064,18 @@ export default function Workspace({
           </div>
 
           <div className="flex items-center gap-2">
+            <select
+              value={playbackSpeed}
+              onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
+              className="text-xs px-1.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 focus:outline-none cursor-pointer text-zinc-700 dark:text-zinc-300 mr-1"
+              title="Audio Playback Speed"
+            >
+              <option value={0.75}>0.75x</option>
+              <option value={1}>1x</option>
+              <option value={1.25}>1.25x</option>
+              <option value={1.5}>1.5x</option>
+              <option value={2}>2x</option>
+            </select>
             <button 
               onClick={handleRemoveChat}
               className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-stone-500 hover:text-red-650 dark:text-zinc-400 dark:hover:text-red-500 cursor-pointer custom-transition"
@@ -1133,6 +1176,9 @@ export default function Workspace({
                       {message.text}
                     </ReactMarkdown>
                   </div>
+                  {message.diagram && message.diagram.mermaid_code && (
+                    <MermaidDiagram chart={message.diagram.mermaid_code} />
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3 pl-1 mt-1">

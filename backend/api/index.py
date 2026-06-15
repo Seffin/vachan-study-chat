@@ -6,6 +6,7 @@ Refactored to use Clean Architecture and Hybrid Search (BM25 + Vector).
 
 import os
 import sys
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -78,6 +79,75 @@ def is_overview_query(query: str) -> bool:
     return False
 
 
+async def generate_mermaid_diagram(query: str, book: str, llm) -> dict:
+    if not llm:
+        return None
+    
+    prompt = f"""Evaluate the following user query about the Bible book '{book}': "{query}"
+Determine if the user is asking for:
+1. A genealogy, family tree, or lineage (return "family_tree").
+2. A historical timeline, overview, or writing period (return "timeline").
+3. Neither (return null).
+
+If 1 or 2, generate valid Mermaid.js code for the chart. Do NOT wrap the mermaid code in markdown code blocks. Use graph TD for family_tree and timeline for timeline.
+CRITICAL: To prevent Mermaid syntax errors, ALWAYS wrap node labels in double quotes. For example, use A["Node Name (Extra info)"] instead of A[Node Name (Extra info)].
+Return ONLY a valid JSON object in this exact format, with no markdown formatting:
+{{
+  "type": "family_tree" | "timeline" | null,
+  "mermaid_code": "mermaid code here or null"
+}}
+"""
+    active_provider = get_active_provider()
+    if active_provider == "gemini":
+        from services.key_rotation import get_key_rotator
+        from google import genai
+        from config import GEMINI_MODEL
+        rotator = get_key_rotator()
+        max_attempts = max(rotator.total_keys, 1)
+        
+        for attempt in range(max_attempts):
+            key = rotator.get_active_key()
+            if not key:
+                break
+            
+            try:
+                client = genai.Client(api_key=key)
+                response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+                content = response.text.strip() if response.text else ""
+                content = content.replace("```json", "").replace("```", "").strip()
+                result = json.loads(content)
+                rotator.report_success()
+                if result.get("type") in ["family_tree", "timeline"] and result.get("mermaid_code"):
+                    return result
+                return None
+            except Exception as e:
+                err_str = str(e).lower()
+                if any(k in err_str for k in ["429", "resource_exhausted", "quota", "503", "unavailable"]):
+                    rotator.report_rate_limited()
+                    continue
+                else:
+                    print(f"Mermaid generation failed: {e}")
+                    break
+    else:
+        try:
+            response = await llm.ainvoke(prompt)
+            content = response.content if hasattr(response, 'content') else str(response)
+            content = content.replace("```json", "").replace("```", "").strip()
+            result = json.loads(content)
+            if result.get("type") in ["family_tree", "timeline"] and result.get("mermaid_code"):
+                return result
+            return None
+        except Exception as e:
+            print(f"Mermaid generation failed: {e}")
+
+    # Fallback diagram if API fails
+    return {
+        "type": "timeline",
+        "mermaid_code": "graph TD\n  Error[Diagram Generation Failed] --> Cause[API High Demand / Rate Limited]\n  Cause --> Fix[Please try asking again later]"
+    }
+
+
+
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
     """SSE streaming chat endpoint. Sends real-time status events, then a final JSON result."""
@@ -114,6 +184,8 @@ async def chat_endpoint(request: ChatRequest):
         active_provider = get_active_provider()
         llm = get_llm_instance(active_provider)
         embeddings_model = get_embeddings_model(active_provider)
+
+        diagram_task = asyncio.create_task(generate_mermaid_diagram(original_query, book_code, llm))
 
         try:
             # Step 0: Overview Fast-Path
@@ -267,11 +339,18 @@ async def chat_endpoint(request: ChatRequest):
         # MongoDB Persistence
         await ChatSessionRepository.save_turn(book_code, original_query, answer, top_ref, source)
 
+        diagram_result = None
+        try:
+            diagram_result = await diagram_task
+        except Exception as e:
+            print(f"Diagram task error: {e}")
+
         # Final result event
         result = {
             "answer": answer,
             "reference": top_ref,
             "suggested_questions": suggested[:3],
+            "diagram": diagram_result,
             "is_general_knowledge": is_general_knowledge,
             "tokens_used": tokens_used,
             "total_tokens_used": stats.get("total_tokens_used", 0),
