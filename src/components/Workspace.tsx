@@ -503,6 +503,8 @@ export default function Workspace({
 
     // Clean up text and expand verse references
     const cleanText = text
+      .replace(/\|/g, ", ")
+      .replace(/[-]{2,}/g, " ")
       .replace(/[#>*_`~"'“”‘’]/g, "")
       .replace(/\[(.*?)\]\(.*?\)/g, "$1")
       .replace(/[\u{1F600}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "") 
