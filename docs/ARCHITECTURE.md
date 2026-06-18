@@ -50,7 +50,7 @@ When a user asks a question (e.g., "What did God create in the beginning?"):
    - The user's query is analyzed using `langdetect`.
    - If the query is non-English (e.g., Malayalam), the system automatically translates the query to English to maximize search recall against the core dataset.
 
-2. **Hybrid Search (`backend/services/rag.py`):**
+2. **Hybrid Search (`backend/services/retrieval.py`):**
    - The query is embedded into a 768-dimensional vector using Google's `text-embedding-004` model.
    - A concurrent MongoDB query executes both:
      - **Vector Search** (Semantic similarity)
@@ -74,34 +74,28 @@ When a user asks a question (e.g., "What did God create in the beginning?"):
 
 ```text
 Logos Bible Study Chatbot/
-├── .antigravity/                   # IDE rule configurations
-├── docs/                           # Documentation (ARCHITECTURE, BACKEND, FRONTEND)
-├── public/                         # Static assets
-├── src/                            # Next.js Frontend App
-│   ├── app/                        # Next.js page routing
-│   │   ├── globals.css             # Tailwind design tokens
-│   │   ├── layout.tsx              # Core app shell
-│   │   └── page.tsx                # Main entry point
-│   ├── components/                 # React UI Components
-│   │   └── Workspace.tsx           # Core App UI (Chat, Voice, Scripture, RAG)
-│   └── lib/                        # Utility functions
-└── backend/                        # Python FastAPI App
+├── .antigravity/          # IDE rule configurations
+├── docs/                  # Architecture & TDD docs
+├── public/                # Static assets
+├── src/                   # Next.js Frontend
+│   ├── app/               # Routing, layout, globals
+│   ├── components/        # Workspace, Navbar, StudyRoom
+│   └── data/              # Offline scripture fallback
+└── backend/               # Python FastAPI
     ├── api/
-    │   └── index.py                # Main FastAPI router & SSE endpoints
-    ├── core/
-    │   └── config.py               # Environment & system configurations
+    │   └── index.py       # Main router & SSE endpoints
+    ├── config.py          # Environment & book mappings
     ├── db/
-    │   ├── mongodb.py              # MongoDB Atlas connection manager
-    │   └── repositories.py         # Data access classes (ChatSession, KeyRepository)
-    ├── models/
-    │   └── chat.py                 # Pydantic schemas
-    ├── scripts/                    # Maintenance scripts
-    │   ├── add_key.py              # CLI Utility to inject new Gemini keys into MongoDB
-    │   └── migrate_from_faiss_to_mongodb.py
-    └── services/                   # Business logic
-        ├── ai_generation.py        # Gemini interaction & transcriptions
-        ├── key_rotation.py         # MongoDB-backed stateless API key rotation
-        ├── embedding.py            # Vector embeddings (768d Matryoshka)
-        ├── rag.py                  # Hybrid Search & Re-ranking pipeline
-        └── translation.py          # Multilingual text utilities
+    │   ├── mongodb.py     # MongoDB Atlas connection
+    │   └── repositories.py # Data access layer
+    ├── schemas/           # Pydantic request/response models
+    ├── scripts/           # Migration & maintenance utilities
+    └── services/          # Business logic
+        ├── ai_generation.py
+        ├── embedding.py
+        ├── key_rotation.py
+        ├── rate_limiter.py
+        ├── reranker.py
+        ├── retrieval.py
+        └── translation.py
 ```
