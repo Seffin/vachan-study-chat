@@ -6,6 +6,7 @@ import { FileText, Users, Bookmark, Sparkles, Plus, Clock, Search, BookOpen, Ale
 import Navbar from "../components/Navbar";
 import StudyRoom from "../components/StudyRoom";
 import Workspace from "../components/Workspace";
+import LoginPage from "../components/LoginPage";
 import { booksList, Section } from "../data/mockBible";
 
 export interface Message {
@@ -22,6 +23,53 @@ export default function Home() {
   // Theme state: default to light per requirements
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [mounted, setMounted] = useState(false);
+
+  // 🔐 Auth states
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ username: string; user_id: string } | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // Validate token on mount
+  useEffect(() => {
+    const token = localStorage.getItem("vachan-auth-token");
+    if (token) {
+      const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      fetch(`${apiURL}/api/auth/me`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      }).then(res => {
+        if (res.ok) return res.json();
+        throw new Error("Invalid token");
+      }).then(user => {
+        setAuthToken(token);
+        setCurrentUser(user);
+      }).catch(() => {
+        localStorage.removeItem("vachan-auth-token");
+      }).finally(() => setAuthChecked(true));
+    } else {
+      setAuthChecked(true);
+    }
+  }, []);
+
+  const handleLogin = (token: string, user: { username: string; user_id: string }) => {
+    localStorage.setItem("vachan-auth-token", token);
+    setAuthToken(token);
+    setCurrentUser(user);
+  };
+
+  const handleLogout = async () => {
+    if (authToken) {
+      const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      try {
+        await fetch(`${apiURL}/api/auth/logout`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${authToken}` }
+        });
+      } catch (e) {}
+    }
+    localStorage.removeItem("vachan-auth-token");
+    setAuthToken(null);
+    setCurrentUser(null);
+  };
 
   // 📊 Token tracking & Gemini free tier states
   const [totalTokensUsed, setTotalTokensUsed] = useState<number>(0);
@@ -205,6 +253,18 @@ export default function Home() {
     setNewNoteContent("");
   };
 
+  if (!authChecked) {
+    return <div className="h-screen bg-stone-50 dark:bg-zinc-950 flex flex-col items-center justify-center p-4">
+      <div className="w-12 h-12 bg-amber-500 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/20 mb-4 animate-pulse">
+        <span className="font-serif font-bold text-white text-2xl">V</span>
+      </div>
+    </div>;
+  }
+
+  if (!authToken) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   return (
     <div className="h-screen flex flex-col overflow-hidden transition-colors duration-300">
       
@@ -220,6 +280,8 @@ export default function Home() {
         requestsToday={requestsToday}
         requestsThisMinute={requestsThisMinute}
         onResetTokens={handleResetTokens}
+        currentUser={currentUser}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Areas with smooth routing transitions */}

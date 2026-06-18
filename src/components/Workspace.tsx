@@ -288,7 +288,11 @@ export default function Workspace({
       const bookCode = getBookCode(bookName);
       try {
         console.log(`Fetching history for ${bookCode} from ${apiURL}/api/history/${bookCode}`);
-        const res = await fetch(`${apiURL}/api/history/${bookCode}`);
+        const res = await fetch(`${apiURL}/api/history/${bookCode}`, {
+          headers: {
+            "Authorization": `Bearer ${localStorage.getItem("vachan-auth-token") || ""}`
+          }
+        });
         if (res.ok) {
           const data = await res.json();
           if (data.history && data.history.length > 0) {
@@ -459,7 +463,10 @@ export default function Workspace({
     try {
       console.log(`Deleting chat history for ${bookCode} from ${apiURL}/api/history/${bookCode}`);
       const res = await fetch(`${apiURL}/api/history/${bookCode}`, {
-        method: "DELETE"
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${localStorage.getItem("vachan-auth-token") || ""}`
+        }
       });
       if (res.ok) {
         console.log("Chat history deleted successfully from database.");
@@ -612,7 +619,8 @@ export default function Workspace({
       const response = await fetch(`${apiURL}/api/chat`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("vachan-auth-token") || ""}`
         },
         body: JSON.stringify({
           book: getBookCode(selectedBook),
@@ -711,31 +719,43 @@ export default function Workspace({
         }
       }
 
-    } catch (err) {
-      console.warn("API Connection Failed: Live backend server is currently offline. Launching dynamic mock simulator fallback.", err);
+    } catch (err: any) {
+      console.warn("API Connection Failed:", err);
       
-      // ===============================================================
-      // 🔌 OFFLINE FALLBACK PIPELINE (Seamless continuation)
-      // ===============================================================
-      setTimeout(() => {
-        const responseData = defaultAIResponse(text);
-        
+      const isUnauthorized = err?.message?.includes("401");
+      
+      if (isUnauthorized) {
         const newAIMessage: Message = {
           id: `ai-${Date.now()}`,
           sender: "ai",
-          text: responseData.answer + "\n\n*⚠️ Note: Mapped FastAPI RAG server is offline. Running in zero-config local backup simulator mode.*",
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          versesHighlighted: responseData.verseReferences
+          text: "⚠️ **Session Ended**\nYour session is either expired or currently active in another device/browser. Please log in again to continue.",
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
-        
         setMessages(prev => [...prev, newAIMessage]);
-        speakText(newAIMessage.text, newAIMessage.id);
-        setSuggestedQuestions(responseData.suggestions);
-        
-        if (responseData.verseReferences && responseData.verseReferences.length > 0) {
-          setActiveHighlights(responseData.verseReferences);
-        }
-      }, 1000);
+      } else {
+        // ===============================================================
+        // 🔌 OFFLINE FALLBACK PIPELINE (Seamless continuation)
+        // ===============================================================
+        setTimeout(() => {
+          const responseData = defaultAIResponse(text);
+          
+          const newAIMessage: Message = {
+            id: `ai-${Date.now()}`,
+            sender: "ai",
+            text: responseData.answer + "\n\n*⚠️ Note: Mapped FastAPI RAG server is offline. Running in zero-config local backup simulator mode.*",
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            versesHighlighted: responseData.verseReferences
+          };
+          
+          setMessages(prev => [...prev, newAIMessage]);
+          speakText(newAIMessage.text, newAIMessage.id);
+          setSuggestedQuestions(responseData.suggestions);
+          
+          if (responseData.verseReferences && responseData.verseReferences.length > 0) {
+            setActiveHighlights(responseData.verseReferences);
+          }
+        }, 1000);
+      }
 
     } finally {
       setIsLoading(false);

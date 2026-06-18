@@ -11,6 +11,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone
+from typing import Dict, Any, Optional
+
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends
+
+# Auth schemes
+security_scheme = HTTPBearer()
 
 # Add backend directory to sys.path so Uvicorn can import correctly
 API_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,10 +42,52 @@ import urllib.request
 import json
 import re
 
+from app.core.security import decode_token
+from db.user_repository import UserRepository
+
+async def get_current_active_user(credentials: HTTPAuthorizationCredentials = Depends(security_scheme)):
+    try:
+        payload = decode_token(credentials.credentials)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid token")
+        
+    username = payload.get("username")
+    token_session_id = payload.get("session_id")
+    
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+        
+    # Single query: fetch user and validate session_id from same document
+    user = await UserRepository.get_by_username(username)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    db_session_id = user.get("session_id")
+    if not db_session_id or db_session_id != token_session_id:
+        raise HTTPException(status_code=401, detail="Session expired or superseded")
+        
+    return user
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_to_mongo()
+    
+    # Seed default user if not exists
+    from db.user_repository import UserRepository
+    from app.core.security import hash_password
+    default_user = await UserRepository.get_by_username("default_user")
+    if not default_user:
+        try:
+            await UserRepository.create_user({
+                "username": "default_user",
+                "email": "default@example.com",
+                "password": "Default@123"
+            })
+            print("Seeded default_user successfully.")
+        except Exception as e:
+            print(f"Failed to seed default_user: {e}")
+
     yield
     await close_mongo_connection()
 
@@ -150,7 +199,7 @@ Return ONLY a valid JSON object in this exact format, with no markdown formattin
 
 
 @app.post("/api/chat")
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_current_active_user)):
     """SSE streaming chat endpoint. Sends real-time status events, then a final JSON result."""
     from fastapi.responses import StreamingResponse
 
@@ -354,7 +403,7 @@ async def chat_endpoint(request: ChatRequest):
             print(f"Diagram task error: {e}")
 
         # MongoDB Persistence
-        await ChatSessionRepository.save_turn(book_code, original_query, answer, top_ref, source, diagram_result)
+        await ChatSessionRepository.save_turn(book_code, original_query, answer, top_ref, source, diagram_result, user_id=current_user["username"])
 
         # Final result event
         result = {
@@ -556,16 +605,16 @@ async def get_scripture(book: str, chapter: int):
 
 
 @app.get("/api/history/{book}")
-async def get_history(book: str):
+async def get_history(book: str, current_user: Dict = Depends(get_current_active_user)):
     book_code = normalize_book_code(book)
-    history = await ChatSessionRepository.get_history(book_code)
+    history = await ChatSessionRepository.get_history(book_code, user_id=current_user["username"])
     return {"history": history}
 
 
 @app.delete("/api/history/{book}")
-async def delete_history(book: str):
+async def delete_history(book: str, current_user: Dict = Depends(get_current_active_user)):
     book_code = normalize_book_code(book)
-    deleted = await ChatSessionRepository.delete_history(book_code)
+    deleted = await ChatSessionRepository.delete_history(book_code, user_id=current_user["username"])
     if deleted:
         return {"status": "success", "message": f"Chat history for {book} deleted successfully."}
     return {"status": "success", "message": "No chat history found to delete."}
@@ -605,6 +654,112 @@ async def text_to_speech(req: TTSRequest):
     except Exception as e:
         print(f"TTS Error: {e}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------------------------------------------------------------
+# Auth Endpoints (Migrated from app.routes.auth)
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel, EmailStr
+from app.core.security import (
+    verify_password, create_access_token, create_session_id,
+    check_rate_limit, record_failed_attempt, clear_rate_limit, decode_token
+)
+from db.user_repository import UserRepository
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class RegisterRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+
+@app.post("/api/auth/login")
+async def login_endpoint(request: LoginRequest):
+    if not request.username or not request.password:
+        raise HTTPException(status_code=400, detail="Username and password required")
+    
+    if len(request.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        
+    if not check_rate_limit(request.username):
+        raise HTTPException(status_code=429, detail="Too many failed login attempts. Please try again later.")
+        
+    user = await UserRepository.get_by_username(request.username)
+    if not user or not verify_password(request.password, user.get("password_hash", "")):
+        record_failed_attempt(request.username)
+        raise HTTPException(status_code=401, detail={"error": "Invalid username or password"})
+        
+    clear_rate_limit(request.username)
+    
+    # Session management
+    session_id = create_session_id()
+    await UserRepository.update_session_id(request.username, session_id)
+    
+    token_payload = {
+        "user_id": str(user["_id"]),
+        "username": user["username"],
+        "session_id": session_id
+    }
+    
+    access_token = create_access_token(data=token_payload)
+    
+    # Simple audit log
+    db = get_database()
+    if db is not None:
+        await db.login_audit.insert_one({
+            "username": request.username,
+            "timestamp": datetime.now(timezone.utc),
+            "status": "success"
+        })
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "username": user["username"],
+            "user_id": str(user["_id"])
+        }
+    }
+
+
+@app.post("/api/auth/register", status_code=201)
+async def register_endpoint(request: RegisterRequest):
+    existing_user = await UserRepository.get_by_username(request.username)
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+        
+    user_data = {
+        "username": request.username,
+        "email": request.email,
+        "password": request.password
+    }
+    
+    created_user = await UserRepository.create_user(user_data)
+    
+    return {
+        "user_id": str(created_user["_id"]),
+        "username": created_user["username"],
+        "email": created_user["email"]
+    }
+
+
+
+@app.get("/api/auth/me")
+async def get_me_endpoint(current_user: Dict = Depends(get_current_active_user)):
+    return {
+        "user_id": str(current_user["_id"]),
+        "username": current_user["username"],
+        "email": current_user.get("email", "")
+    }
+
+
+@app.post("/api/auth/logout")
+async def logout_endpoint(current_user: Dict = Depends(get_current_active_user)):
+    await UserRepository.clear_session(current_user["username"])
+    return {"status": "success", "message": "Logged out"}
+
 if __name__ == "__main__":
     import uvicorn
     from config import HOST, PORT, RELOAD
