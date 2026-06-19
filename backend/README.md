@@ -42,6 +42,7 @@ backend/
 - JWT-based authentication
 - User registration and login
 - Password hashing with bcrypt
+- Strict single active session enforcement (concurrent logins automatically invalidate previous sessions)
 - Rate limiting for login attempts
 - Protected endpoints
 
