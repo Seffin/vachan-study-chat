@@ -35,6 +35,10 @@ npm run dev                  # http://localhost:3000
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| POST | `/api/auth/register` | User registration |
+| POST | `/api/auth/login` | User login (returns JWT token and session ID) |
+| POST | `/api/auth/logout` | User logout (invalidates session ID) |
+| GET | `/api/auth/me` | Fetch currently logged-in user profile |
 | POST | `/api/chat` | SSE streaming RAG chat |
 | POST | `/api/transcribe` | Audio → text (Gemini) |
 | POST | `/api/tts` | Text → Base64 MP3 (gTTS) |

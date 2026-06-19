@@ -20,6 +20,10 @@ The frontend provides a rich, responsive UI utilizing **Tailwind CSS** and **Fra
 The backend manages all intelligence, orchestration, retrieval, and translation logic.
 
 **Key Endpoints (`backend/api/index.py`):**
+- `POST /api/auth/register`: Creates new user accounts, storing hashed passwords in MongoDB.
+- `POST /api/auth/login`: Validates credentials, issues JWT tokens, and generates a new active session ID.
+- `POST /api/auth/logout`: Invalidates the user's active session, logging them out globally.
+- `GET /api/auth/me`: Authenticates JWT bearer tokens and returns the active user profile.
 - `POST /api/chat`: The core intelligence loop. Processes history, runs language detection, performs hybrid search, formats RAG context, queries Gemini, and streams the response back via SSE.
 - `POST /api/transcribe`: Receives raw audio blobs from the frontend, uses Gemini 2.5 Flash to generate highly accurate multilingual transcripts, and returns the parsed text.
 - `POST /api/tts`: Receives text payload, auto-detects language (e.g., `ml` vs `en`), utilizes `gTTS` to generate raw MP3 streams, encodes the binary to a Base64 JSON payload, and returns it to the client to avoid HTTP chunk corruption.
@@ -29,6 +33,7 @@ The backend manages all intelligence, orchestration, retrieval, and translation 
 The legacy local FAISS vector indices have been completely replaced with **MongoDB Atlas Vector Search** for scalable, cloud-native Hybrid Search.
 
 **Collections:**
+- **`users`**: Stores user authentication credentials. Fields include `username`, `email`, `password` (hashed using bcrypt), and `session_id` (a dynamic token tracking the active session to enforce single-active-session concurrency limits).
 - **`qa_dataset`**: The core RAG knowledge base containing ~18,000 embedded Q&A pairs. 
   - Schema includes: `book`, `chapter`, `verse`, `question`, `answer`, `lang_code` (`en`, `ml`, `hi`), and `embedding`.
   - The `embedding` field contains exactly 768-dimension vectors (truncated from Gemini's native 3072 dimensions) using Matryoshka Representation Learning to save 75% storage space.
