@@ -92,6 +92,24 @@ app = FastAPI(
     version="2.0.0",
 )
 
+# ── Startup diagnostics ──
+_mongo_uri = os.environ.get("MONGO_URI", "")
+if not _mongo_uri:
+    print("STARTUP WARNING: MONGO_URI environment variable is NOT SET.", flush=True)
+    print("The backend will run in DEGRADED mode (no DB, no auth, no history).", flush=True)
+else:
+    print(f"STARTUP: MONGO_URI is set (length {len(_mongo_uri)} chars).", flush=True)
+    # Try a quick connection test
+    try:
+        from db.mongodb import get_database
+        _test_db = get_database()
+        if _test_db is not None:
+            print("STARTUP: MongoDB lazy connection object created successfully.", flush=True)
+        else:
+            print("STARTUP: MongoDB lazy connection returned None (MONGO_URI may be invalid).", flush=True)
+    except Exception as e:
+        print(f"STARTUP ERROR: MongoDB connection test failed: {e}", flush=True)
+
 # ── CORS: locked to known origins ──
 _origins = get_allowed_origins()
 
@@ -764,16 +782,40 @@ async def text_to_speech(req: TTSRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Root route ──
+@app.get("/")
+async def root():
+    return {
+        "message": "Vachan Study Bible Chatbot API",
+        "version": "2.0.0",
+        "docs": "/docs",
+        "health": "/api/health"
+    }
+
+
 # ── Health Check ──
 @app.get("/api/health")
 async def health_check():
     """Public health check endpoint for monitoring and uptime verification."""
+    from db.mongodb import MONGO_URI
     db = get_database()
-    db_status = "connected" if db else "disconnected"
+    db_ping = "unknown"
+    if db is not None:
+        try:
+            # Lightweight ping to verify actual connectivity
+            await db.command("ping")
+            db_ping = "ok"
+        except Exception as e:
+            db_ping = f"error: {str(e)[:100]}"
+    
     return {
-        "status": "healthy" if db else "degraded",
+        "status": "healthy" if db_ping == "ok" else "degraded",
         "version": "2.0.0",
-        "database": db_status,
+        "database": {
+            "uri_configured": bool(MONGO_URI),
+            "uri_length": len(MONGO_URI) if MONGO_URI else 0,
+            "connection": db_ping,
+        },
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
