@@ -15,6 +15,7 @@ bcrypt>=4.1.0
 
 # AI/ML (stripped for Vercel — no heavy packages)
 google-genai>=0.1.0
+langchain-google-genai
 langdetect>=1.0.9
 
 # Audio
