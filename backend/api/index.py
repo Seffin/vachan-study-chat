@@ -305,10 +305,10 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
     async def event_stream():
       try:
         start_time = time.time()
-        # Local dev: generous timeout (30s). Vercel Free Tier: 8s hard limit.
-        MAX_DURATION = float(os.environ.get("SSE_MAX_DURATION", "8.0"))
+        # Vercel Free Tier max is typically 10s to 60s depending on config.
+        MAX_DURATION = float(os.environ.get("SSE_MAX_DURATION", "50.0"))
         if os.environ.get("VERCEL_ENV") not in ("production", "preview"):
-            MAX_DURATION = float(os.environ.get("SSE_MAX_DURATION", "30.0"))
+            MAX_DURATION = float(os.environ.get("SSE_MAX_DURATION", "60.0"))
         print(f"SSE timeout guard: {MAX_DURATION}s", flush=True)
 
         original_query = request.message.strip()
@@ -351,8 +351,22 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                 yield f"event: status\ndata: Understood as: '{active_query}'\n\n"
 
             if time.time() - start_time > MAX_DURATION:
-                yield f"event: error\ndata: Request is taking too long. Please try a simpler question.\n\n"
-                return
+                    error_payload = {
+                        "answer": "⚠️ Request is taking too long. Please try a simpler question.",
+                        "reference": "1:1",
+                        "suggested_questions": ["What does this passage mean?", "How can I apply this?", "Tell me more about the context."],
+                        "diagram": None,
+                        "is_general_knowledge": False,
+                        "tokens_used": 0,
+                        "total_tokens_used": 0,
+                        "pending_tokens": 0,
+                        "requests_today": 0,
+                        "requests_this_minute": 0,
+                        "source": "ai_general",
+                        "error": {"status": True, "tag": "timeout", "message": "Request took too long."}
+                    }
+                    yield f"event: result\ndata: {json.dumps(error_payload)}\n\n"
+                    return
 
         is_overview = is_overview_query(active_query)
         
