@@ -166,7 +166,9 @@ async def fix_vercel_path(request: Request, call_next):
     FastAPI's @app.get("/api/...") routes match correctly in production.
     """
     if not request.scope.get("path", "").startswith("/api"):
-        request.scope["path"] = "/api" + request.scope.get("path", "")
+        # Don't prepend /api for the root path so the welcome message works
+        if request.scope.get("path") != "/":
+            request.scope["path"] = "/api" + request.scope.get("path", "")
     return await call_next(request)
 
 def normalize_text(text: str) -> str:
