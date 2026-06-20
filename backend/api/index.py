@@ -158,6 +158,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def fix_vercel_path(request: Request, call_next):
+    """
+    Vercel strips the /api prefix when routing to api/index.py.
+    This middleware prepends /api to the internal path so that
+    FastAPI's @app.get("/api/...") routes match correctly in production.
+    """
+    if not request.scope.get("path", "").startswith("/api"):
+        request.scope["path"] = "/api" + request.scope.get("path", "")
+    return await call_next(request)
 
 def normalize_text(text: str) -> str:
     if not text:
