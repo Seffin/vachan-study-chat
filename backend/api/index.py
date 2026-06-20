@@ -94,29 +94,31 @@ app = FastAPI(
 
 # ── CORS: locked to known origins ──
 _origins = get_allowed_origins()
-_vercel_env = os.environ.get("VERCEL_ENV")
-if _vercel_env == "production":
-    _origins = ["https://vachan-study-chat-snpm.vercel.app"]
-elif _vercel_env == "preview":
-    # Vercel preview deployments get a dynamic URL
+
+# ALWAYS include the production frontend URL (your app won't work without this)
+_prod_frontend = "https://vachan-study-chat-snpm.vercel.app"
+if _prod_frontend not in _origins:
+    _origins.append(_prod_frontend)
+
+# Vercel preview deployments get a dynamic URL
+_vercel_env = os.environ.get("VERCEL_ENV", "")
+if _vercel_env == "preview":
     preview_url = os.environ.get("VERCEL_URL", "")
     if preview_url and f"https://{preview_url}" not in _origins:
         _origins.append(f"https://{preview_url}")
-else:
-    # Local development: allow all localhost origins for convenience
-    # Must list them explicitly because allow_credentials=True forbids "*"
-    _origins = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:3002",
-        "http://127.0.0.1:3002",
-        "http://localhost:3003",
-        "http://127.0.0.1:3003",
-        "http://localhost:3004",
-        "http://127.0.0.1:3004",
+
+# Local development: allow all localhost origins for convenience
+if not os.environ.get("VERCEL") and not os.environ.get("VERCEL_ENV"):
+    _local_origins = [
+        "http://localhost:3000", "http://127.0.0.1:3000",
+        "http://localhost:3001", "http://127.0.0.1:3001",
+        "http://localhost:3002", "http://127.0.0.1:3002",
+        "http://localhost:3003", "http://127.0.0.1:3003",
+        "http://localhost:3004", "http://127.0.0.1:3004",
     ]
+    for o in _local_origins:
+        if o not in _origins:
+            _origins.append(o)
     # Also include any extra origins from env
     extra = os.environ.get("ALLOWED_ORIGINS", "")
     if extra:
@@ -124,6 +126,8 @@ else:
             o = o.strip()
             if o and o not in _origins:
                 _origins.append(o)
+
+print(f"CORS configured origins: {_origins}", flush=True)
 
 app.add_middleware(
     CORSMiddleware,
