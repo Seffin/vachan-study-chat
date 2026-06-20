@@ -115,8 +115,11 @@ _origins = get_allowed_origins()
 
 # ALWAYS include the production frontend URL (your app won't work without this)
 _prod_frontend = "https://vachan-study-chat-snpm.vercel.app"
+_main_frontend = "https://vachan-study-chat.vercel.app"
 if _prod_frontend not in _origins:
     _origins.append(_prod_frontend)
+if _main_frontend not in _origins:
+    _origins.append(_main_frontend)
 
 # Vercel preview deployments get a dynamic URL
 _vercel_env = os.environ.get("VERCEL_ENV", "")
