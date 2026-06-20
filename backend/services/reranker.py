@@ -66,21 +66,22 @@ Respond with ONLY "YES" if they are semantically equivalent, or "NO" if they are
 
     from services.key_rotation import get_key_rotator
     from services.ai_generation import get_llm_instance, _is_rate_limit_error
+    import asyncio
     
     rotator = get_key_rotator()
     max_attempts = max(rotator.total_keys, 1)
     
     for attempt in range(max_attempts):
         try:
-            result = llm.invoke(prompt)
+            result = await llm.ainvoke(prompt)
             text = result.content.strip().upper()
-            rotator.report_success()
+            await asyncio.to_thread(rotator.report_success)
             return "YES" in text
         except Exception as e:
             if _is_rate_limit_error(e):
-                rotator.report_rate_limited()
+                await asyncio.to_thread(rotator.report_rate_limited)
                 # Rebuild LLM with next key
-                llm = get_llm_instance("gemini")
+                llm = await asyncio.to_thread(get_llm_instance, "gemini")
                 if not llm:
                     print(f"LLM Verification: All keys exhausted.")
                     return False

@@ -2,6 +2,9 @@
 Application configuration.
 """
 
+import os
+import secrets
+
 from pydantic_settings import BaseSettings
 from typing import List, Optional
 
@@ -13,8 +16,8 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
 
-    # Security
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+    # Security — load from env or generate a random default to avoid hardcoded secrets
+    SECRET_KEY: str = os.environ.get("SECRET_KEY", secrets.token_hex(32))
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 

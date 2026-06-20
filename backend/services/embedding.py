@@ -46,3 +46,29 @@ def get_embeddings_model(provider: str):
         print("RAG System: bge-m3 is not yet configured for Serverless.")
         
     return None
+
+async def get_embeddings_model_async(provider: str):
+    if provider == "gemini":
+        key = await get_key_rotator().get_active_key_async()
+        if key:
+            try:
+                try:
+                    from langchain_google_genai import GoogleGenerativeAIEmbeddings as GeminiEmbeddings
+                except ImportError:
+                    from langchain_google_genai import GoogleGenAIEmbeddings as GeminiEmbeddings
+                return GeminiEmbeddings(
+                    model="models/gemini-embedding-001", 
+                    google_api_key=key, 
+                    output_dimensionality=768
+                )
+            except Exception as e:
+                print(f"RAG System: Failed to load Gemini embeddings ({e})")
+            
+    elif provider == "openai" and OPENAI_API_KEY:
+        try:
+            from langchain_openai import OpenAIEmbeddings
+            return OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
+        except Exception as e:
+            print(f"RAG System: Failed to load OpenAIEmbeddings ({e})")
+            
+    return None

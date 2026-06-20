@@ -12,18 +12,18 @@ def load_tokens_data() -> dict:
     """Loads global token tracking data from MongoDB."""
     return MetricsRepository.get_metrics()
 
+async def load_tokens_data_async() -> dict:
+    return await MetricsRepository.get_metrics_async()
 
 def save_tokens_data(data: dict):
     """Saves global token tracking data to MongoDB."""
     MetricsRepository.save_metrics(data)
 
+async def save_tokens_data_async(data: dict):
+    await MetricsRepository.save_metrics_async(data)
 
 def is_rate_limited() -> tuple:
-    """Checks if the current request would exceed rate limits.
-    
-    Returns:
-        tuple: (is_limited: bool, message: str)
-    """
+    """Checks if the current request would exceed rate limits."""
     data = load_tokens_data()
     now = time.time()
 
@@ -38,6 +38,14 @@ def is_rate_limited() -> tuple:
         return True, f"Gemini free tier daily limit exceeded ({RATE_LIMIT_RPD} RPD). Switching to local offline mode."
     return False, ""
 
+async def is_rate_limited_async() -> tuple:
+    data = await load_tokens_data_async()
+    now = time.time()
+    if now - data.get("last_day_reset_time", 0.0) >= 86400: return False, ""
+    if now - data.get("last_minute_reset_time", 0.0) >= 60: return False, ""
+    if data["requests_this_minute"] >= RATE_LIMIT_RPM: return True, f"Gemini free tier rate limit exceeded ({RATE_LIMIT_RPM} RPM). Switching to local offline mode."
+    if data["requests_today"] >= RATE_LIMIT_RPD: return True, f"Gemini free tier daily limit exceeded ({RATE_LIMIT_RPD} RPD). Switching to local offline mode."
+    return False, ""
 
 def check_and_update_rate_limits() -> dict:
     """Increments request counters and resets if time windows have elapsed."""
@@ -57,6 +65,21 @@ def check_and_update_rate_limits() -> dict:
     data["requests_this_minute"] += 1
 
     save_tokens_data(data)
+    return data
+
+async def check_and_update_rate_limits_async() -> dict:
+    data = await load_tokens_data_async()
+    now = time.time()
+    if now - data.get("last_day_reset_time", 0.0) >= 86400:
+        data["requests_today"] = 0
+        data["last_day_reset_time"] = now
+        data["pending_tokens"] = data["limit"]
+    if now - data.get("last_minute_reset_time", 0.0) >= 60:
+        data["requests_this_minute"] = 0
+        data["last_minute_reset_time"] = now
+    data["requests_today"] += 1
+    data["requests_this_minute"] += 1
+    await save_tokens_data_async(data)
     return data
 
 

@@ -94,6 +94,31 @@ class GeminiKeyRotator:
             except Exception as e:
                 print(f"Gemini Key Rotator: DB Error ({e}). Using fallback keys.")
                 return self._get_fallback_key()
+
+    async def get_active_key_async(self) -> Optional[str]:
+        try:
+            keys_data = await KeyRepository.get_all_keys_async()
+            if not keys_data: return self._get_fallback_key()
+            now = time.time()
+            available_keys = []
+            cooldown_keys = []
+            for kd in keys_data:
+                token = kd.get("token")
+                cooldown = kd.get("cooldown_until", 0.0)
+                if now >= cooldown: available_keys.append(token)
+                else: cooldown_keys.append((token, cooldown))
+            if available_keys:
+                self._current_key = available_keys[0]
+                return self._current_key
+            if cooldown_keys:
+                cooldown_keys.sort(key=lambda x: x[1])
+                earliest_key, earliest_time = cooldown_keys[0]
+                self._current_key = earliest_key
+                return self._current_key
+            return None
+        except Exception as e:
+            print(f"Gemini Key Rotator: Async DB Error ({e}). Using fallback keys.")
+            return self._get_fallback_key()
                 
     def _get_fallback_key(self) -> Optional[str]:
         """In-memory rotation if MongoDB fails."""

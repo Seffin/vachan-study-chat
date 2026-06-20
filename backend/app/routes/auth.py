@@ -99,6 +99,11 @@ async def login(request: Request):
         access_token=token,
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user=UserResponse(
+            user_id=str(user["_id"]),
+            username=user["username"],
+            email=user.get("email", ""),
+        ),
     )
 
 

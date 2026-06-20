@@ -201,6 +201,15 @@ class KeyRepository:
         return keys
 
     @staticmethod
+    async def get_all_keys_async() -> List[Dict[str, Any]]:
+        from db.mongodb import get_database
+        db = get_database()
+        if db is None:
+            return []
+        collection = db["api_keys"]
+        return await collection.find({"provider": "gemini"}).to_list(length=100)
+
+    @staticmethod
     def add_key(token: str) -> bool:
         from db.mongodb import get_sync_database
         db = get_sync_database()
@@ -297,6 +306,25 @@ class MetricsRepository:
         return doc
 
     @staticmethod
+    async def get_metrics_async() -> Dict[str, Any]:
+        from db.mongodb import get_database
+        db = get_database()
+        default_data = MetricsRepository._get_default_data()
+        if db is None: return default_data
+        collection = db["system_metrics"]
+        doc = await collection.find_one({"_id": "global_metrics"})
+        if not doc:
+            default_data["_id"] = "global_metrics"
+            try:
+                await collection.insert_one(default_data)
+            except Exception:
+                pass
+            return default_data
+        for key, val in default_data.items():
+            if key not in doc: doc[key] = val
+        return doc
+
+    @staticmethod
     def save_metrics(data: Dict[str, Any]) -> bool:
         from db.mongodb import get_sync_database
         db = get_sync_database()
@@ -311,6 +339,21 @@ class MetricsRepository:
             del update_data["_id"]
             
         result = collection.update_one(
+            {"_id": "global_metrics"},
+            {"$set": update_data},
+            upsert=True
+        )
+        return result.upserted_id is not None or result.modified_count > 0
+
+    @staticmethod
+    async def save_metrics_async(data: Dict[str, Any]) -> bool:
+        from db.mongodb import get_database
+        db = get_database()
+        if db is None: return False
+        collection = db["system_metrics"]
+        update_data = data.copy()
+        if "_id" in update_data: del update_data["_id"]
+        result = await collection.update_one(
             {"_id": "global_metrics"},
             {"$set": update_data},
             upsert=True

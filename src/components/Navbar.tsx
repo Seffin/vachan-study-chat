@@ -17,6 +17,7 @@ interface NavbarProps {
   onResetTokens: () => void;
   currentUser?: { username: string; user_id: string } | null;
   onLogout?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export default function Navbar({ 
@@ -31,7 +32,8 @@ export default function Navbar({
   requestsThisMinute,
   onResetTokens,
   currentUser,
-  onLogout
+  onLogout,
+  onOpenSettings
 }: NavbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -216,7 +218,10 @@ export default function Navbar({
                     <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{currentUser?.username || "Guest Account"}</p>
                   </div>
                   <button 
-                    onClick={() => setProfileDropdownOpen(false)}
+                    onClick={() => {
+                      setProfileDropdownOpen(false);
+                      if (onOpenSettings) onOpenSettings();
+                    }}
                     className="flex items-center gap-2 px-4 py-3 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm text-zinc-700 dark:text-zinc-300 transition-colors w-full text-left"
                   >
                     <Settings className="w-4 h-4" />

@@ -37,6 +37,25 @@ def get_llm_instance(provider: str, api_key_override: str = None):
         )
     return None
 
+async def get_llm_instance_async(provider: str, api_key_override: str = None):
+    if provider == "gemini":
+        key = api_key_override or await get_key_rotator().get_active_key_async()
+        if key:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            return ChatGoogleGenerativeAI(
+                model=GEMINI_MODEL,
+                google_api_key=key,
+                temperature=LLM_TEMPERATURE
+            )
+    elif provider == "openai" and OPENAI_API_KEY:
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=OPENAI_MODEL,
+            temperature=LLM_TEMPERATURE,
+            openai_api_key=OPENAI_API_KEY
+        )
+    return None
+
 
 def get_active_provider() -> str:
     """Returns the name of the currently active LLM provider."""
@@ -45,6 +64,12 @@ def get_active_provider() -> str:
         return "gemini"
     elif OPENAI_API_KEY:
         return "openai"
+    return "semantic"
+
+async def get_active_provider_async() -> str:
+    rotator = get_key_rotator()
+    if await rotator.get_active_key_async(): return "gemini"
+    elif OPENAI_API_KEY: return "openai"
     return "semantic"
 
 
@@ -155,7 +180,12 @@ async def _generate_gemini_with_rotation(query: str, lang_name: str, book_code: 
     for attempt in range(max_attempts):
         key = rotator.get_active_key()
         if not key:
+            print(f"Gemini Key Rotator: No keys available (attempt {attempt + 1}/{max_attempts}).")
             break
+        
+        # Log which key is being tried (first 8 chars only for security)
+        key_preview = key[:8] + "..." if len(key) > 8 else "***"
+        print(f"Gemini Key Rotator: Attempt {attempt + 1}/{max_attempts} using key {key_preview}", flush=True)
         
         try:
             client = genai.Client(api_key=key)
@@ -166,16 +196,20 @@ async def _generate_gemini_with_rotation(query: str, lang_name: str, book_code: 
             answer = response.text.strip() if response.text else ""
             tokens_used = max(1, int(len(prompt) / 4)) + max(1, int(len(answer) / 4))
             rotator.report_success()
+            print(f"Gemini Key Rotator: SUCCESS on attempt {attempt + 1} with key {key_preview}", flush=True)
             return answer, tokens_used
         except Exception as e:
             last_error = e
             if _is_rate_limit_error(e):
                 rotator.report_rate_limited()
+                print(f"Gemini Key Rotator: Rate limited on attempt {attempt + 1} with key {key_preview}. Retrying...", flush=True)
                 continue  # Try next key
             else:
+                print(f"Gemini Key Rotator: Non-rate-limit error on attempt {attempt + 1}: {e}", flush=True)
                 raise  # Non-rate-limit error, propagate immediately
     
     # All keys exhausted
+    print(f"Gemini Key Rotator: ALL {max_attempts} keys exhausted. Last error: {last_error}", flush=True)
     raise last_error or Exception("All Gemini API keys are rate-limited.")
 
 
@@ -200,7 +234,7 @@ async def _generate_langchain(query: str, lang_name: str, book_code: str, is_ove
             f"Please answer the following question strictly IN {lang_name} using your general knowledge: {query}"
         )
 
-    llm_result = llm.invoke(prompt)
+    llm_result = await llm.ainvoke(prompt)
     answer = llm_result.content.strip()
     usage = extract_token_usage(llm_result, prompt)
     return answer, usage["total"]

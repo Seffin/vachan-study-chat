@@ -35,7 +35,12 @@ class UserRepository:
         db = get_database()
         if db is None:
             return None
-        user = await db.users.find_one({"_id": user_id})
+        from bson.objectid import ObjectId
+        try:
+            oid = ObjectId(user_id)
+        except Exception:
+            return None
+        user = await db.users.find_one({"_id": oid})
         return user
 
     @staticmethod

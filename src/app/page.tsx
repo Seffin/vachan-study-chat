@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FileText, Users, Bookmark, Sparkles, Plus, Clock, Search, BookOpen, AlertCircle, Database } from "lucide-react";
+import { FileText, Users, Bookmark, Sparkles, Plus, Clock, Search, BookOpen, AlertCircle, Database, X, Settings as SettingsIcon, HelpCircle } from "lucide-react";
 import Navbar from "../components/Navbar";
 import StudyRoom from "../components/StudyRoom";
 import Workspace from "../components/Workspace";
@@ -28,6 +28,10 @@ export default function Home() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<{ username: string; user_id: string } | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+
+  // 🛠️ Modal states
+  const [showSettings, setShowSettings] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   // Validate token on mount
   useEffect(() => {
@@ -282,6 +286,7 @@ export default function Home() {
         onResetTokens={handleResetTokens}
         currentUser={currentUser}
         onLogout={handleLogout}
+        onOpenSettings={() => setShowSettings(true)}
       />
 
       {/* Main Content Areas with smooth routing transitions */}
@@ -315,6 +320,8 @@ export default function Home() {
               setSelectedVerse={setWorkspaceSelectedVerse}
               scriptureContent={workspaceScriptureContent}
               setScriptureContent={setWorkspaceScriptureContent}
+              onOpenSettings={() => setShowSettings(true)}
+              onOpenHelp={() => setShowHelp(true)}
             />
           </div>
         )}
@@ -642,6 +649,152 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {showSettings && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowSettings(false)}
+              className="fixed inset-0 z-50 bg-black"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            >
+              <div className="w-full max-w-md bg-white dark:bg-zinc-900 rounded-2xl border border-stone-200 dark:border-zinc-800 shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between p-5 border-b border-stone-200 dark:border-zinc-800">
+                  <h2 className="font-serif font-bold text-xl text-stone-900 dark:text-zinc-50 flex items-center gap-2">
+                    <SettingsIcon className="w-5 h-5 text-amber-500" />
+                    Settings
+                  </h2>
+                  <button
+                    onClick={() => setShowSettings(false)}
+                    className="p-1.5 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800 text-stone-500 dark:text-zinc-400 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-5 space-y-5">
+                  <div>
+                    <label className="text-xs font-bold text-stone-500 dark:text-zinc-400 uppercase tracking-wider block mb-2">
+                      Theme
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setTheme("light")}
+                        className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+                          theme === "light"
+                            ? "bg-amber-500 text-white border-amber-500"
+                            : "bg-stone-50 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border-stone-200 dark:border-zinc-700"
+                        }`}
+                      >
+                        Light
+                      </button>
+                      <button
+                        onClick={() => setTheme("dark")}
+                        className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+                          theme === "dark"
+                            ? "bg-amber-500 text-white border-amber-500"
+                            : "bg-stone-50 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border-stone-200 dark:border-zinc-700"
+                        }`}
+                      >
+                        Dark
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-stone-500 dark:text-zinc-400 uppercase tracking-wider block mb-1.5">
+                      API Backend
+                    </label>
+                    <p className="text-sm text-stone-600 dark:text-zinc-300 bg-stone-50 dark:bg-zinc-800/50 p-3 rounded-xl border border-stone-200 dark:border-zinc-700 font-mono break-all">
+                      {process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-stone-500 dark:text-zinc-400 uppercase tracking-wider block mb-1.5">
+                      Version
+                    </label>
+                    <p className="text-sm text-stone-600 dark:text-zinc-300">
+                      Vachan Study v1.0.0
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Help Modal */}
+      <AnimatePresence>
+        {showHelp && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowHelp(false)}
+              className="fixed inset-0 z-50 bg-black"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            >
+              <div className="w-full max-w-lg bg-white dark:bg-zinc-900 rounded-2xl border border-stone-200 dark:border-zinc-800 shadow-2xl overflow-hidden max-h-[80vh] flex flex-col">
+                <div className="flex items-center justify-between p-5 border-b border-stone-200 dark:border-zinc-800">
+                  <h2 className="font-serif font-bold text-xl text-stone-900 dark:text-zinc-50 flex items-center gap-2">
+                    <HelpCircle className="w-5 h-5 text-amber-500" />
+                    Help & Guide
+                  </h2>
+                  <button
+                    onClick={() => setShowHelp(false)}
+                    className="p-1.5 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800 text-stone-500 dark:text-zinc-400 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-5 overflow-y-auto space-y-5">
+                  <div>
+                    <h3 className="font-bold text-stone-900 dark:text-zinc-100 text-sm mb-1.5">Getting Started</h3>
+                    <p className="text-sm text-stone-600 dark:text-zinc-300 leading-relaxed">
+                      Select a Bible book from the Study Room. In the Workspace, you can read scripture, ask questions, and receive AI-powered answers grounded in the unfoldingWord dataset.
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-stone-900 dark:text-zinc-100 text-sm mb-1.5">Voice Features</h3>
+                    <p className="text-sm text-stone-600 dark:text-zinc-300 leading-relaxed">
+                      Tap the microphone icon to ask questions by voice. Tap the speaker icon on any AI message to hear the answer read aloud.
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-stone-900 dark:text-zinc-100 text-sm mb-1.5">Keyboard Shortcuts</h3>
+                    <div className="text-sm text-stone-600 dark:text-zinc-300 space-y-1">
+                      <div className="flex justify-between"><span className="font-mono text-xs bg-stone-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded">Enter</span> <span>Send message</span></div>
+                      <div className="flex justify-between"><span className="font-mono text-xs bg-stone-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded">Esc</span> <span>Close modals</span></div>
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-stone-900 dark:text-zinc-100 text-sm mb-1.5">Need Support?</h3>
+                    <p className="text-sm text-stone-600 dark:text-zinc-300 leading-relaxed">
+                      For technical issues or feedback, contact the development team. Vachan Study is an open-source project built for the church community.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
     </div>
   );

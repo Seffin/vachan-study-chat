@@ -17,16 +17,17 @@ class RegisterRequest(BaseModel):
     password: str = Field(..., min_length=8)
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int = 86400  # 24 hours
-
-
 class UserResponse(BaseModel):
     user_id: str
     username: str
     email: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = 86400  # 24 hours
+    user: Optional[UserResponse] = None
 
 
 class ErrorResponse(BaseModel):

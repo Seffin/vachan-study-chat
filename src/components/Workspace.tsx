@@ -50,6 +50,8 @@ interface WorkspaceProps {
   setSelectedBook: (bookName: string) => void;
   onBackToLanding: () => void;
   onUpdateTokens?: (used: number, totalUsed: number, pending: number, reqToday: number, reqMinute: number) => void;
+  onOpenSettings?: () => void;
+  onOpenHelp?: () => void;
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   suggestedQuestions: string[];
@@ -196,6 +198,8 @@ export default function Workspace({
   setSelectedBook, 
   onBackToLanding,
   onUpdateTokens,
+  onOpenSettings,
+  onOpenHelp,
   messages,
   setMessages,
   suggestedQuestions,
@@ -975,11 +979,17 @@ export default function Workspace({
 
         {/* Navigator Footer */}
         <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-[#f8f8f8] dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400">
-          <button className="flex items-center gap-1.5 text-xs hover:text-zinc-900 dark:hover:text-zinc-100 custom-transition cursor-pointer">
+          <button 
+            onClick={() => onOpenSettings?.()}
+            className="flex items-center gap-1.5 text-xs hover:text-zinc-900 dark:hover:text-zinc-100 custom-transition cursor-pointer"
+          >
             <Settings className="w-4 h-4" />
             <span>Settings</span>
           </button>
-          <button className="flex items-center gap-1.5 text-xs hover:text-zinc-900 dark:hover:text-zinc-100 custom-transition cursor-pointer">
+          <button 
+            onClick={() => onOpenHelp?.()}
+            className="flex items-center gap-1.5 text-xs hover:text-zinc-900 dark:hover:text-zinc-100 custom-transition cursor-pointer"
+          >
             <HelpCircle className="w-4 h-4" />
             <span>Help</span>
           </button>
@@ -1050,6 +1060,23 @@ export default function Workspace({
                   );
                 })}
               </nav>
+              {/* Mobile Drawer Footer */}
+              <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-[#f8f8f8] dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400">
+                <button 
+                  onClick={() => { onOpenSettings?.(); setLeftOpen(false); }}
+                  className="flex items-center gap-1.5 text-xs hover:text-zinc-900 dark:hover:text-zinc-100 custom-transition cursor-pointer"
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>Settings</span>
+                </button>
+                <button 
+                  onClick={() => { onOpenHelp?.(); setLeftOpen(false); }}
+                  className="flex items-center gap-1.5 text-xs hover:text-zinc-900 dark:hover:text-zinc-100 custom-transition cursor-pointer"
+                >
+                  <HelpCircle className="w-4 h-4" />
+                  <span>Help</span>
+                </button>
+              </div>
             </motion.aside>
           </>
         )}
@@ -1467,6 +1494,7 @@ export default function Workspace({
               ))}
             </select>
             <button 
+              onClick={() => onOpenSettings?.()}
               className="p-1.5 border border-zinc-200 dark:border-zinc-800 text-zinc-550 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-lg custom-transition cursor-pointer"
               title="Display Options"
             >

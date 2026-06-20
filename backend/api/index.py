@@ -7,9 +7,15 @@ Refactored to use Clean Architecture and Hybrid Search (BM25 + Vector).
 import os
 import sys
 import asyncio
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, UploadFile, File
+import time
+import json
+import re
+import urllib.request
+import base64
+
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
@@ -32,15 +38,11 @@ from schemas.requests import ChatRequest, EnvUpdateRequest
 from schemas.responses import ChatResponse, ChatError, BookDatasetResponse, TokenStatusResponse
 
 from services.translation import detect_user_language, translate_text, translate_to_english
-from services.rate_limiter import is_rate_limited, check_and_update_rate_limits, load_tokens_data, save_tokens_data
-from services.ai_generation import generate_ai_answer, get_active_provider, get_llm_instance, transcribe_audio, rewrite_query_with_context
-from services.embedding import get_embeddings_model
+from services.rate_limiter import is_rate_limited_async, check_and_update_rate_limits_async, load_tokens_data_async, save_tokens_data_async
+from services.ai_generation import generate_ai_answer, get_active_provider_async, get_llm_instance_async, transcribe_audio, rewrite_query_with_context
+from services.embedding import get_embeddings_model_async
 from services.retrieval import hybrid_search
 from services.reranker import rerank_candidates, decide_best_match
-
-import urllib.request
-import json
-import re
 
 from app.core.security import decode_token
 from db.user_repository import UserRepository
@@ -69,39 +71,64 @@ async def get_current_active_user(credentials: HTTPAuthorizationCredentials = De
     return user
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await connect_to_mongo()
-    
-    # Seed default user if not exists
-    from db.user_repository import UserRepository
-    from app.core.security import hash_password
-    default_user = await UserRepository.get_by_username("default_user")
-    if not default_user:
-        try:
-            await UserRepository.create_user({
-                "username": "default_user",
-                "email": "default@example.com",
-                "password": "Default@123"
-            })
-            print("Seeded default_user successfully.")
-        except Exception as e:
-            print(f"Failed to seed default_user: {e}")
+# ── IP-Based Rate Limiting (per-function-instance, Vercel Free Tier safe) ──
+_ip_rate_store: Dict[str, list] = {}  # {ip: [timestamp1, ...]}
 
-    yield
-    await close_mongo_connection()
+def is_ip_rate_limited(ip: str, max_requests: int = 30, window: int = 60) -> bool:
+    """Simple in-memory rate limiter. Resets per function cold start."""
+    now = time.time()
+    requests = _ip_rate_store.get(ip, [])
+    requests = [t for t in requests if now - t < window]
+    _ip_rate_store[ip] = requests
+    if len(requests) >= max_requests:
+        return True
+    requests.append(now)
+    return False
+
 
 app = FastAPI(
     title="Vachan Study Bible Study Chatbot RAG API",
     description="FastAPI Backend serving retrieval-augmented scripture insights using Hybrid Search.",
     version="2.0.0",
-    lifespan=lifespan
 )
+
+# ── CORS: locked to known origins ──
+_origins = get_allowed_origins()
+_vercel_env = os.environ.get("VERCEL_ENV")
+if _vercel_env == "production":
+    _origins = ["https://vachan-study-chat-snpm.vercel.app"]
+elif _vercel_env == "preview":
+    # Vercel preview deployments get a dynamic URL
+    preview_url = os.environ.get("VERCEL_URL", "")
+    if preview_url and f"https://{preview_url}" not in _origins:
+        _origins.append(f"https://{preview_url}")
+else:
+    # Local development: allow all localhost origins for convenience
+    # Must list them explicitly because allow_credentials=True forbids "*"
+    _origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
+        "http://localhost:3003",
+        "http://127.0.0.1:3003",
+        "http://localhost:3004",
+        "http://127.0.0.1:3004",
+    ]
+    # Also include any extra origins from env
+    extra = os.environ.get("ALLOWED_ORIGINS", "")
+    if extra:
+        for o in extra.split(","):
+            o = o.strip()
+            if o and o not in _origins:
+                _origins.append(o)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -128,7 +155,16 @@ def is_overview_query(query: str) -> bool:
     return False
 
 
+def is_diagram_query(query: str) -> bool:
+    if not query: return False
+    q = query.lower()
+    keywords = ["diagram", "timeline", "family tree", "genealogy", "lineage", "chart", "flowchart"]
+    return any(k in q for k in keywords)
+
 async def generate_mermaid_diagram(query: str, book: str, lang_name: str, llm) -> dict:
+    if not is_diagram_query(query):
+        return None
+        
     if not llm:
         return None
     
@@ -199,11 +235,24 @@ Return ONLY a valid JSON object in this exact format, with no markdown formattin
 
 
 @app.post("/api/chat")
-async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_current_active_user)):
+async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict = Depends(get_current_active_user)):
     """SSE streaming chat endpoint. Sends real-time status events, then a final JSON result."""
     from fastapi.responses import StreamingResponse
-
+    
+    # IP-based rate limiting
+    client_ip = req.headers.get("x-forwarded-for", req.client.host)
+    if is_ip_rate_limited(client_ip):
+        raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
+    
     async def event_stream():
+      try:
+        start_time = time.time()
+        # Local dev: generous timeout (30s). Vercel Free Tier: 8s hard limit.
+        MAX_DURATION = float(os.environ.get("SSE_MAX_DURATION", "8.0"))
+        if os.environ.get("VERCEL_ENV") not in ("production", "preview"):
+            MAX_DURATION = float(os.environ.get("SSE_MAX_DURATION", "30.0"))
+        print(f"SSE timeout guard: {MAX_DURATION}s", flush=True)
+
         original_query = request.message.strip()
         book_code = normalize_book_code(request.book)
         
@@ -218,14 +267,16 @@ async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_c
         print(f"Detected Language: {lang_name} ({lang_code})", flush=True)
         yield f"event: status\ndata: Language detected: {lang_name}\n\n"
 
-        rate_limited, limit_msg = is_rate_limited()
-        tokens_data = load_tokens_data()
+        # Use the fully async MongoDB operations (no thread pool needed, no blocking)
+        rate_limited, limit_msg = await is_rate_limited_async()
+        tokens_data = await load_tokens_data_async()
         tokens_used = 0
-        stats = load_tokens_data()
+        stats = await load_tokens_data_async()
 
-        active_provider = get_active_provider()
-        llm = get_llm_instance(active_provider)
-        embeddings_model = get_embeddings_model(active_provider)
+        active_provider = await get_active_provider_async()
+        llm = await get_llm_instance_async(active_provider)
+        embeddings_model = await get_embeddings_model_async(active_provider)
+        print(f"Active provider: {active_provider}, LLM ready: {llm is not None}, Embeddings ready: {embeddings_model is not None}", flush=True)
 
         # Intercept and rewrite query using history
         active_query = original_query
@@ -236,6 +287,10 @@ async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_c
                 print(f"Rewritten Query: '{active_query}'", flush=True)
                 yield f"event: status\ndata: Understood as: '{active_query}'\n\n"
 
+            if time.time() - start_time > MAX_DURATION:
+                yield f"event: error\ndata: Request is taking too long. Please try a simpler question.\n\n"
+                return
+
         is_overview = is_overview_query(active_query)
         
         answer = ""
@@ -244,7 +299,10 @@ async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_c
         is_general_knowledge = False
         error_obj = ChatError(status=False)
         
-        diagram_task = asyncio.create_task(generate_mermaid_diagram(active_query, book_code, lang_name, llm))
+        # Only spawn diagram generation if the query looks like it needs one
+        diagram_task = None
+        if is_diagram_query(active_query):
+            diagram_task = asyncio.create_task(generate_mermaid_diagram(active_query, book_code, lang_name, llm))
 
         try:
             # Step 0: Overview Fast-Path
@@ -260,9 +318,13 @@ async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_c
                 if embeddings_model and not rate_limited and tokens_data["pending_tokens"] > 0:
                     yield f"event: status\ndata: Generating query embedding...\n\n"
                     try:
-                        query_embedding = embeddings_model.embed_query(active_query)
+                        query_embedding = await embeddings_model.aembed_query(active_query)
                     except Exception as e:
                         print(f"Embedding generation failed: {e}")
+                
+                if time.time() - start_time > MAX_DURATION:
+                    yield f"event: error\ndata: Request is taking too long. Please try a simpler question.\n\n"
+                    return
                 
                 # Step 1: Native Language Hybrid Search
                 yield f"event: status\ndata: Searching {lang_name} dataset...\n\n"
@@ -277,6 +339,10 @@ async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_c
                 best_match, source_label, verify_tokens = await decide_best_match(active_query, ranked_candidates, llm)
                 tokens_used += verify_tokens
                 
+                if time.time() - start_time > MAX_DURATION:
+                    yield f"event: error\ndata: Request is taking too long. Please try a simpler question.\n\n"
+                    return
+                
                 if best_match:
                     score = best_match.get("rerank_score", 0)
                     yield f"event: status\ndata: ✅ Match found (confidence: {score:.0%})\n\n"
@@ -286,6 +352,10 @@ async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_c
                     
                 else:
                     # Step 4: Translation Fallback OR AI Generation
+                    if time.time() - start_time > MAX_DURATION:
+                        yield f"event: error\ndata: Request is taking too long. Please try a simpler question.\n\n"
+                        return
+                    
                     if lang_code != "en" and not rate_limited and tokens_data["pending_tokens"] > 0 and llm:
                         yield f"event: status\ndata: Native search missed. Attempting English fallback...\n\n"
                         print("Native search missed. Attempting English Translation Fallback...", flush=True)
@@ -309,6 +379,10 @@ async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_c
                         
                         en_best, en_source, en_verify_tokens = await decide_best_match(en_query, en_ranked, llm)
                         tokens_used += en_verify_tokens
+                        
+                        if time.time() - start_time > MAX_DURATION:
+                            yield f"event: error\ndata: Request is taking too long. Please try a simpler question.\n\n"
+                            return
                         
                         if en_best:
                             score = en_best.get("rerank_score", 0)
@@ -344,14 +418,14 @@ async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_c
 
             # Update Token Status
             if tokens_used > 0:
-                stats = check_and_update_rate_limits()
+                stats = await check_and_update_rate_limits_async()
                 stats["total_tokens_used"] += tokens_used
                 stats["pending_tokens"] = max(0, stats["pending_tokens"] - tokens_used)
-                save_tokens_data(stats)
+                await save_tokens_data_async(stats)
 
         except Exception as e:
             err_str = str(e).lower()
-            if "429" in err_str or "503" in err_str or "unavailable" in err_str or "high traffic" in err_str:
+            if "429" in err_str or "503" in err_str or "unavailable" in err_str or "high traffic" in err_str or "rate-limited" in err_str or "rate_limited" in err_str:
                 error_obj = ChatError(status=True, tag="high traffic", message="The AI model is currently experiencing high demand. Please try again later.")
             elif "exhausted" in err_str or "limit" in err_str or "quota" in err_str:
                 error_obj = ChatError(status=True, tag="exceed data limit", message="Your free tier data quota has been exceeded.")
@@ -397,13 +471,17 @@ async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_c
             suggested = ["What does this passage mean?", "How can I apply this?", "Tell me more about the context."]
 
         diagram_result = None
-        try:
-            diagram_result = await diagram_task
-        except Exception as e:
-            print(f"Diagram task error: {e}")
+        if diagram_task:
+            try:
+                diagram_result = await diagram_task
+            except Exception as e:
+                print(f"Diagram task error: {e}")
 
-        # MongoDB Persistence
-        await ChatSessionRepository.save_turn(book_code, original_query, answer, top_ref, source, diagram_result, user_id=current_user["username"])
+        # MongoDB Persistence (non-blocking: don't let save failure kill the response)
+        try:
+            await ChatSessionRepository.save_turn(book_code, original_query, answer, top_ref, source, diagram_result, user_id=current_user["username"])
+        except Exception as e:
+            print(f"MongoDB save_turn failed (non-fatal): {e}", flush=True)
 
         # Final result event
         result = {
@@ -421,6 +499,25 @@ async def chat_endpoint(request: ChatRequest, current_user: Dict = Depends(get_c
             "error": {"status": error_obj.status, "tag": error_obj.tag, "message": error_obj.message}
         }
         yield f"event: result\ndata: {json.dumps(result)}\n\n"
+
+      except Exception as fatal_err:
+        # Top-level safety net: ensure the frontend ALWAYS gets a response
+        print(f"FATAL SSE ERROR: {fatal_err}", flush=True)
+        error_payload = {
+            "answer": "⚠️ An unexpected error occurred. Please try again later.",
+            "reference": "1:1",
+            "suggested_questions": ["What does this passage mean?", "How can I apply this?", "Tell me more about the context."],
+            "diagram": None,
+            "is_general_knowledge": False,
+            "tokens_used": 0,
+            "total_tokens_used": 0,
+            "pending_tokens": 0,
+            "requests_today": 0,
+            "requests_this_minute": 0,
+            "source": "ai_general",
+            "error": {"status": True, "tag": "system error", "message": str(fatal_err)}
+        }
+        yield f"event: result\ndata: {json.dumps(error_payload)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -460,7 +557,7 @@ async def get_book_dataset(book: str):
 
 @app.get("/api/tokens", response_model=TokenStatusResponse)
 async def get_tokens_endpoint():
-    data = load_tokens_data()
+    data = await load_tokens_data_async()
     # Dry check resets (handled in check_and_update_rate_limits, but for read-only here)
     import time
     now = time.time()
@@ -468,11 +565,11 @@ async def get_tokens_endpoint():
         data["requests_today"] = 0
         data["last_day_reset_time"] = now
         data["pending_tokens"] = data["limit"]
-        save_tokens_data(data)
+        await save_tokens_data_async(data)
     if now - data.get("last_minute_reset_time", 0.0) >= 60:
         data["requests_this_minute"] = 0
         data["last_minute_reset_time"] = now
-        save_tokens_data(data)
+        await save_tokens_data_async(data)
         
     return TokenStatusResponse(
         total_tokens_used=data["total_tokens_used"],
@@ -496,7 +593,7 @@ async def reset_tokens_endpoint():
         "last_minute_reset_time": time.time(),
         "last_day_reset_time": time.time()
     }
-    save_tokens_data(default_data)
+    await save_tokens_data_async(default_data)
     return TokenStatusResponse(
         total_tokens_used=default_data["total_tokens_used"],
         pending_tokens=default_data["pending_tokens"],
@@ -558,7 +655,9 @@ async def get_scripture(book: str, chapter: int):
     # Mode 1: MongoDB
     doc = await ScriptureRepository.get_scripture(book_code, chapter)
     if doc:
-        return doc
+        response = JSONResponse(content=doc)
+        response.headers["Cache-Control"] = "public, max-age=3600"
+        return response
         
     # Mode 2: Dynamic API.Bible fetch
     from config import BIBLE_API_KEY, BIBLE_API_URL, BIBLE_ID
@@ -584,16 +683,18 @@ async def get_scripture(book: str, chapter: int):
                 parsed_verses = parse_html_to_verses(html_content)
                 if parsed_verses:
                     await ScriptureRepository.cache_scripture(book_code, chapter, reference, parsed_verses)
-                    return {
+                    response = JSONResponse(content={
                         "book": book_code,
                         "chapter": chapter,
                         "reference": reference,
                         "verses": parsed_verses
-                    }
+                    })
+                    response.headers["Cache-Control"] = "public, max-age=3600"
+                    return response
         except Exception as e:
             print(f"Bible API Fetch Exception ({e}).")
-
-    return {
+    
+    fallback = {
         "book": book_code,
         "chapter": chapter,
         "reference": f"{book.capitalize()} {chapter}",
@@ -602,6 +703,9 @@ async def get_scripture(book: str, chapter: int):
             {"verse": 2, "text": f"This is placeholder scripture context for {book.capitalize()} chapter {chapter} verse 2."}
         ]
     }
+    response = JSONResponse(content=fallback)
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return response
 
 
 @app.get("/api/history/{book}")
@@ -654,6 +758,21 @@ async def text_to_speech(req: TTSRequest):
     except Exception as e:
         print(f"TTS Error: {e}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Health Check ──
+@app.get("/api/health")
+async def health_check():
+    """Public health check endpoint for monitoring and uptime verification."""
+    db = get_database()
+    db_status = "connected" if db else "disconnected"
+    return {
+        "status": "healthy" if db else "degraded",
+        "version": "2.0.0",
+        "database": db_status,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
 
 # ---------------------------------------------------------------------------
 # Auth Endpoints (Migrated from app.routes.auth)
@@ -759,6 +878,18 @@ async def get_me_endpoint(current_user: Dict = Depends(get_current_active_user))
 async def logout_endpoint(current_user: Dict = Depends(get_current_active_user)):
     await UserRepository.clear_session(current_user["username"])
     return {"status": "success", "message": "Logged out"}
+
+
+# ── Global Exception Handler ──
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catches any unhandled exception and returns a structured JSON error."""
+    print(f"UNHANDLED ERROR: {exc}", flush=True)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error", "detail": str(exc)}
+    )
+
 
 if __name__ == "__main__":
     import uvicorn
