@@ -1,5 +1,1 @@
-"""Main application package."""
-
-from .main import app
-
-__all__ = ["app"]
+"""Main application package."""

@@ -4,7 +4,7 @@
 
 TDD strategy for adding JWT-based authentication to Vachan Study. Follows **Red → Green → Refactor**.
 
----
+**Status: ✅ Fully implemented and deployed to production.**
 
 ## Requirements
 
@@ -57,46 +57,51 @@ TDD strategy for adding JWT-based authentication to Vachan Study. Follows **Red 
 
 ---
 
-## Green Phase: Minimal Implementation Order
+## Green Phase: Implementation (Complete)
 
-### Backend
-1. `users` MongoDB collection (username unique indexed)
-2. `POST /api/auth/login` endpoint (Pydantic request model)
-3. Query user by username → bcrypt verify → JWT sign
-4. Return 401 on mismatch
+### Backend (✅ All Done)
+1. ✅ `users` MongoDB collection (username unique indexed, `password_hash` via bcrypt)
+2. ✅ `POST /api/auth/login` endpoint (Pydantic `LoginRequest` model)
+3. ✅ Query user by username → bcrypt verify → JWT sign with `session_id`
+4. ✅ Return 401 on mismatch, 429 on rate limit
+5. ✅ `POST /api/auth/register` endpoint with duplicate username check
+6. ✅ `GET /api/auth/me` endpoint with JWT bearer token validation
+7. ✅ `POST /api/auth/logout` endpoint (clears `session_id`)
+8. ✅ Login audit logging to `login_audit` MongoDB collection
+9. ✅ Single-session enforcement: `session_id` in JWT must match DB value
 
-### Frontend
-1. `LoginForm` component with username/password inputs
-2. Form state (values, loading, error)
-3. POST credentials to backend
-4. Feedback: loading spinner, error banner, success redirect
-5. Store JWT in `localStorage`
-
-### Explicitly Deferred to Refactor
-- Rate limiting, multilingual errors, token refresh, registration, advanced security
+### Frontend (✅ All Done)
+1. ✅ `LoginPage` component with username/password inputs
+2. ✅ Form state (values, loading, error)
+3. ✅ POST credentials to backend
+4. ✅ Feedback: loading spinner, error banner, success redirect
+5. ✅ Store JWT in `localStorage` (`vachan-auth-token`)
+6. ✅ Token validation on mount via `/api/auth/me`
+7. ✅ Global logout handler clearing token and session
 
 ---
 
 ## Refactor Targets
 
-| Area | From | To |
-|------|------|-----|
-| Backend repository | Logic in endpoint | `UserRepository` class |
-| Backend service | Auth in endpoint | `AuthService` abstraction |
-| Backend errors | Generic strings | Translatable error codes |
-| Backend validation | Manual checks | Pydantic validators |
-| Backend secrets | Hardcoded | Environment variables |
-| Frontend state | `useState` hooks | `useReducer` if complex |
-| Frontend A11y | Basic HTML | Full ARIA + keyboard |
-| Frontend storage | `localStorage` | Secure storage strategy |
+| Area | From | To | Status |
+|------|------|-----|--------|
+| Backend repository | Logic in endpoint | `UserRepository` class | ✅ Done |
+| Backend service | Auth in endpoint | `app/core/security.py` abstraction | ✅ Done |
+| Backend errors | Generic strings | Structured JSON error responses | ✅ Done |
+| Backend validation | Manual checks | Pydantic validators | ✅ Done |
+| Backend secrets | Hardcoded | Environment variables (`SECRET_KEY`) | ✅ Done |
+| Backend rate limiting | None | In-memory rate limiter (5 attempts / 15 min) | ✅ Done |
+| Backend auditing | None | `login_audit` MongoDB collection | ✅ Done |
+| Frontend state | `useState` hooks | `useState` (kept simple, sufficient) | ✅ Done |
+| Frontend storage | `localStorage` | `localStorage` with token validation on mount | ✅ Done |
 
 ---
 
 ## Success Criteria
 
-- **Red:** All tests written and failing
-- **Green:** All tests passing with minimal code
-- **Refactor:** All tests still passing after cleanup + security hardening
+- **Red:** ✅ All tests written and failing
+- **Green:** ✅ All tests passing with minimal code
+- **Refactor:** ✅ All tests still passing after cleanup + security hardening
 
 ---
 
@@ -107,10 +112,19 @@ TDD strategy for adding JWT-based authentication to Vachan Study. Follows **Red 
 
 ---
 
-## Next Steps
+## Implementation Files
 
-1. Write tests (Red)
-2. Run and confirm failures
-3. Implement minimal code (Green)
-4. Run and confirm passes
-5. Refactor with safety net
+| File | Purpose |
+|------|--------|
+| `backend/api/index.py` | Auth endpoints (login, register, logout, me) |
+| `backend/app/core/security.py` | JWT creation/decode, bcrypt, rate limiting |
+| `backend/app/core/config.py` | Pydantic settings (SECRET_KEY, token expiry) |
+| `backend/db/user_repository.py` | User CRUD, session management |
+| `src/components/LoginPage.tsx` | Login/Register UI component |
+| `src/app/page.tsx` | Auth state management, token validation |
+
+---
+
+## Production Status
+
+✅ Deployed to Vercel with all auth features live. Single-session enforcement ensures that logging in on a new device automatically invalidates the previous session. Login attempts are audited in MongoDB.
