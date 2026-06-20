@@ -6,5 +6,9 @@
       "destination": "/api/index"
     }
   ],
-  "maxDuration": 60
+  "functions": {
+    "api/**/*.py": {
+      "maxDuration": 60
+    }
+  }
 }
