@@ -177,7 +177,7 @@ def normalize_text(text: str) -> str:
     return re.sub(r'[^a-z0-9]', '', text.lower())
 
 
-async def execute_with_heartbeat(coro, message: str, timeout: float = 20.0):
+async def execute_with_heartbeat(coro, message: str, timeout: float = 50.0):
     """
     Executes a coroutine while yielding an SSE heartbeat every 2 seconds.
     This prevents Vercel Serverless from killing the connection during heavy tasks (like translation/LLM).
@@ -340,7 +340,7 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
         active_query = original_query
         if request.history and not rate_limited and tokens_data["pending_tokens"] > 0:
             yield f"event: status\ndata: Analyzing conversation context...\n\n"
-            async for item in execute_with_heartbeat(rewrite_query_with_context(original_query, request.history, llm), "Analyzing context", 15.0):
+            async for item in execute_with_heartbeat(rewrite_query_with_context(original_query, request.history, llm), "Analyzing context", 50.0):
                 if isinstance(item, dict) and "result" in item:
                     active_query = item["result"]
                 else:
@@ -418,7 +418,7 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                 
                 # Step 3: Confidence Decision
                 best_match, source_label, verify_tokens = None, "no_match", 0
-                async for item in execute_with_heartbeat(decide_best_match(active_query, ranked_candidates, llm), "Verifying matches", 15.0):
+                async for item in execute_with_heartbeat(decide_best_match(active_query, ranked_candidates, llm), "Verifying matches", 50.0):
                     if isinstance(item, dict) and "result" in item:
                         best_match, source_label, verify_tokens = item["result"]
                     else:
@@ -449,7 +449,7 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                         
                         # Translate query to English
                         yield f"event: status\ndata: Translating query to English...\n\n"
-                        async for item in execute_with_heartbeat(translate_to_english(active_query, llm), "Translating to English", 15.0):
+                        async for item in execute_with_heartbeat(translate_to_english(active_query, llm), "Translating to English", 50.0):
                             if isinstance(item, dict) and "result" in item:
                                 en_query = item["result"]
                             else:
@@ -474,7 +474,7 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                         en_ranked = rerank_candidates(en_query, en_candidates)
                         
                         en_best, en_source, en_verify_tokens = None, "no_match", 0
-                        async for item in execute_with_heartbeat(decide_best_match(en_query, en_ranked, llm), "Verifying English matches", 15.0):
+                        async for item in execute_with_heartbeat(decide_best_match(en_query, en_ranked, llm), "Verifying English matches", 50.0):
                             if isinstance(item, dict) and "result" in item:
                                 en_best, en_source, en_verify_tokens = item["result"]
                             else:
@@ -490,7 +490,7 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                             score = en_best.get("rerank_score", 0)
                             yield f"event: status\ndata: ✅ English match found (confidence: {score:.0%}). Translating to {lang_name}...\n\n"
                             print("Match found in English dataset. Translating answer to native language...")
-                            async for item in execute_with_heartbeat(translate_text(en_best["response"], lang_name, llm), "Translating answer", 20.0):
+                            async for item in execute_with_heartbeat(translate_text(en_best["response"], lang_name, llm), "Translating answer", 50.0):
                                 if isinstance(item, dict) and "result" in item:
                                     answer = item["result"]
                                 else:
@@ -501,7 +501,7 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                         else:
                             yield f"event: status\ndata: No dataset match. Generating AI response...\n\n"
                             print("English dataset missed. Falling back to AI Generation...")
-                            async for item in execute_with_heartbeat(generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider), "Generating AI answer", 25.0):
+                            async for item in execute_with_heartbeat(generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider), "Generating AI answer", 50.0):
                                 if isinstance(item, dict) and "result" in item:
                                     answer, ai_tokens = item["result"]
                                 else:
@@ -516,7 +516,7 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                         else:
                             yield f"event: status\ndata: No dataset match. Generating AI response...\n\n"
                             print("Falling back to AI Generation...")
-                            async for item in execute_with_heartbeat(generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider), "Generating AI answer", 25.0):
+                            async for item in execute_with_heartbeat(generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider), "Generating AI answer", 50.0):
                                 if isinstance(item, dict) and "result" in item:
                                     answer, ai_tokens = item["result"]
                                 else:
