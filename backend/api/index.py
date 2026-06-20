@@ -177,6 +177,27 @@ def normalize_text(text: str) -> str:
     return re.sub(r'[^a-z0-9]', '', text.lower())
 
 
+async def execute_with_heartbeat(coro, message: str, timeout: float = 20.0):
+    """
+    Executes a coroutine while yielding an SSE heartbeat every 2 seconds.
+    This prevents Vercel Serverless from killing the connection during heavy tasks (like translation/LLM).
+    """
+    task = asyncio.create_task(coro)
+    start_time = time.time()
+    
+    while not task.done():
+        elapsed = time.time() - start_time
+        if elapsed > timeout:
+            task.cancel()
+            raise asyncio.TimeoutError(f"Timeout: {message} took longer than {timeout}s")
+            
+        done, _ = await asyncio.wait([task], timeout=2.0)
+        if not done:
+            yield f"event: status\ndata: {message}...\n\n"
+            
+    yield {"result": task.result()}
+
+
 def is_overview_query(query: str) -> bool:
     if not query:
         return False
@@ -319,7 +340,12 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
         active_query = original_query
         if request.history and not rate_limited and tokens_data["pending_tokens"] > 0:
             yield f"event: status\ndata: Analyzing conversation context...\n\n"
-            active_query = await rewrite_query_with_context(original_query, request.history, llm)
+            async for item in execute_with_heartbeat(rewrite_query_with_context(original_query, request.history, llm), "Analyzing context", 15.0):
+                if isinstance(item, dict) and "result" in item:
+                    active_query = item["result"]
+                else:
+                    yield item
+            
             if active_query != original_query:
                 print(f"Rewritten Query: '{active_query}'", flush=True)
                 yield f"event: status\ndata: Understood as: '{active_query}'\n\n"
@@ -355,7 +381,11 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                 if embeddings_model and not rate_limited and tokens_data["pending_tokens"] > 0:
                     yield f"event: status\ndata: Generating query embedding...\n\n"
                     try:
-                        query_embedding = await embeddings_model.aembed_query(active_query)
+                        async for item in execute_with_heartbeat(embeddings_model.aembed_query(active_query), "Embedding query", 10.0):
+                            if isinstance(item, dict) and "result" in item:
+                                query_embedding = item["result"]
+                            else:
+                                yield item
                     except Exception as e:
                         print(f"Embedding generation failed: {e}")
                 
@@ -373,7 +403,13 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                 ranked_candidates = rerank_candidates(active_query, candidates)
                 
                 # Step 3: Confidence Decision
-                best_match, source_label, verify_tokens = await decide_best_match(active_query, ranked_candidates, llm)
+                best_match, source_label, verify_tokens = None, "no_match", 0
+                async for item in execute_with_heartbeat(decide_best_match(active_query, ranked_candidates, llm), "Verifying matches", 15.0):
+                    if isinstance(item, dict) and "result" in item:
+                        best_match, source_label, verify_tokens = item["result"]
+                    else:
+                        yield item
+                        
                 tokens_used += verify_tokens
                 
                 if time.time() - start_time > MAX_DURATION:
@@ -399,14 +435,23 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                         
                         # Translate query to English
                         yield f"event: status\ndata: Translating query to English...\n\n"
-                        en_query = await translate_to_english(active_query, llm)
+                        async for item in execute_with_heartbeat(translate_to_english(active_query, llm), "Translating to English", 15.0):
+                            if isinstance(item, dict) and "result" in item:
+                                en_query = item["result"]
+                            else:
+                                yield item
+                                
                         tokens_used += max(1, int(len(active_query)/4)) + 10
                         
                         # English Embedding & Hybrid Search
                         en_embedding = []
                         if embeddings_model:
                             try:
-                                en_embedding = embeddings_model.embed_query(en_query)
+                                async for item in execute_with_heartbeat(embeddings_model.aembed_query(en_query), "Embedding English query", 10.0):
+                                    if isinstance(item, dict) and "result" in item:
+                                        en_embedding = item["result"]
+                                    else:
+                                        yield item
                             except Exception:
                                 pass
                         
@@ -414,7 +459,13 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                         en_candidates = await hybrid_search(en_query, en_embedding, book_code, "en", k=10)
                         en_ranked = rerank_candidates(en_query, en_candidates)
                         
-                        en_best, en_source, en_verify_tokens = await decide_best_match(en_query, en_ranked, llm)
+                        en_best, en_source, en_verify_tokens = None, "no_match", 0
+                        async for item in execute_with_heartbeat(decide_best_match(en_query, en_ranked, llm), "Verifying English matches", 15.0):
+                            if isinstance(item, dict) and "result" in item:
+                                en_best, en_source, en_verify_tokens = item["result"]
+                            else:
+                                yield item
+                                
                         tokens_used += en_verify_tokens
                         
                         if time.time() - start_time > MAX_DURATION:
@@ -425,14 +476,22 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                             score = en_best.get("rerank_score", 0)
                             yield f"event: status\ndata: ✅ English match found (confidence: {score:.0%}). Translating to {lang_name}...\n\n"
                             print("Match found in English dataset. Translating answer to native language...")
-                            answer = await translate_text(en_best["response"], lang_name, llm)
+                            async for item in execute_with_heartbeat(translate_text(en_best["response"], lang_name, llm), "Translating answer", 20.0):
+                                if isinstance(item, dict) and "result" in item:
+                                    answer = item["result"]
+                                else:
+                                    yield item
                             top_ref = en_best["reference"]
                             source = "dataset_translated"
                             tokens_used += max(1, int(len(en_best["response"])/4)) + max(1, int(len(answer)/4))
                         else:
                             yield f"event: status\ndata: No dataset match. Generating AI response...\n\n"
                             print("English dataset missed. Falling back to AI Generation...")
-                            answer, ai_tokens = await generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider)
+                            async for item in execute_with_heartbeat(generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider), "Generating AI answer", 25.0):
+                                if isinstance(item, dict) and "result" in item:
+                                    answer, ai_tokens = item["result"]
+                                else:
+                                    yield item
                             source = "ai_general"
                             tokens_used += ai_tokens
                     else:
@@ -443,7 +502,11 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                         else:
                             yield f"event: status\ndata: No dataset match. Generating AI response...\n\n"
                             print("Falling back to AI Generation...")
-                            answer, ai_tokens = await generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider)
+                            async for item in execute_with_heartbeat(generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider), "Generating AI answer", 25.0):
+                                if isinstance(item, dict) and "result" in item:
+                                    answer, ai_tokens = item["result"]
+                                else:
+                                    yield item
                             source = "ai_general"
                             is_general_knowledge = True
                             tokens_used += ai_tokens

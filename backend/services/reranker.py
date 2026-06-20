@@ -73,10 +73,13 @@ Respond with ONLY "YES" if they are semantically equivalent, or "NO" if they are
     
     for attempt in range(max_attempts):
         try:
-            result = await llm.ainvoke(prompt)
+            result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=8.0)
             text = result.content.strip().upper()
             await asyncio.to_thread(rotator.report_success)
             return "YES" in text
+        except asyncio.TimeoutError:
+            print(f"LLM Verification Error: Timeout after 8s on attempt {attempt+1}")
+            continue
         except Exception as e:
             if _is_rate_limit_error(e):
                 await asyncio.to_thread(rotator.report_rate_limited)
