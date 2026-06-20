@@ -13,16 +13,9 @@ pymongo>=4.6.0
 PyJWT>=2.8.0
 bcrypt>=4.1.0
 
-# AI/ML
-faiss-cpu>=1.7.0
-langchain>=0.1.0
-langchain-community>=0.0.10
-langchain-openai>=0.0.2
-openai>=1.6.0
-langchain-google-genai>=1.0.0
+# AI/ML (stripped for Vercel — no heavy packages)
 google-genai>=0.1.0
 langdetect>=1.0.9
-langchain-mongodb>=0.1.0
 
 # Audio
 python-multipart>=0.0.6
@@ -30,18 +23,3 @@ gTTS>=2.5.0
 
 # SSL
 certifi>=2023.7.22
-
-# Development
-httpie>=3.2.1
-pytest>=7.4.4
-pytest-asyncio>=0.23.3
-pytest-cov>=4.1.0
-
-# Type checking
-mypy>=1.8.0
-
-# Linting
-ruff>=0.1.14
-
-# Testing
-httpx>=0.26.0
