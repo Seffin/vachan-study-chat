@@ -530,7 +530,11 @@ data: {"answer": "...", "reference": "1:1", "suggested_questions": [...], "diagr
 - `session_id`: changes on every login (single-session enforcement)
 
 ### `qa_dataset` Collection (RAG Knowledge Base)
-**Status:** Already populated. 13,871 documents across all 66 books. Imported from pre-built FAISS vectorstores (`backend/static_data/vectorstores/gemini/`).
+**Status:** ✅ Fully populated. **15,094 documents** across all 66 books. All data is already in MongoDB `qa_dataset` collection. No migration scripts need to be run.
+
+The collection was built from two sources:
+1. **Pre-built FAISS vectorstores** (`backend/static_data/vectorstores/gemini/`) — 13,871 docs imported
+2. **Missing TSV documents** (`backend/data/en_tq/`) — 1,242 docs with freshly generated embeddings
 
 ```json
 {
@@ -556,7 +560,7 @@ data: {"answer": "...", "reference": "1:1", "suggested_questions": [...], "diagr
 - `search_text`: Combined `reference + question + response` for BM25 lexical search
 - `paraphrases`: Reserved for future multilingual paraphrases
 - Indexes: `vector_index` (on `embedding`), `text_index` (on `search_text`)
-- **No migration needed.** The collection is already seeded from FAISS indexes.
+- **No migration needed.** The collection is complete.
 
 ### `chat_history` Collection
 ```json
