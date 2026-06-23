@@ -182,9 +182,15 @@ Logos Bible Study Chatbot/
 │   │   ├── reranker.py            # Cross-encoder scoring + confidence
 │   │   ├── retrieval.py           # Hybrid BM25 + Vector search
 │   │   └── translation.py         # langdetect + auto-translation
-│   ├── scripts/                   # Data migration & utilities
+│   ├── scripts/                   # Diagnostic & migration utilities
+│   │   ├── check_qa_dataset.py    # Report: documents, books, embeddings per book
+│   │   ├── check_sample_doc.py    # Inspect one document's fields
+│   │   ├── import_faiss_to_mongodb.py  # Import FAISS indexes → MongoDB (no API calls)
+│   │   ├── migrate_all_books.py   # Regenerate embeddings from TSV (slow, burns API keys)
+│   │   └── migrate_to_qa_dataset.py    # Single-book migration (legacy)
 │   ├── data/en_tq/                # unfoldingWord TSV datasets (per book)
 │   ├── static_data/               # Precompiled JSON scriptures & CSV
+│   ├── static_data/vectorstores/gemini/  # Pre-built FAISS indexes (66 books, already imported)
 │   ├── requirements.txt           # ⭐ DEPLOYED to Vercel (stripped, <50MB)
 │   ├── requirements-local.txt     # Full local dev (faiss, langchain, etc.)
 │   ├── requirements-vercel.txt    # Alias for requirements.txt
@@ -524,20 +530,33 @@ data: {"answer": "...", "reference": "1:1", "suggested_questions": [...], "diagr
 - `session_id`: changes on every login (single-session enforcement)
 
 ### `qa_dataset` Collection (RAG Knowledge Base)
+**Status:** Already populated. 13,871 documents across all 66 books. Imported from pre-built FAISS vectorstores (`backend/static_data/vectorstores/gemini/`).
+
 ```json
 {
   "_id": ObjectId("..."),
-  "book": "GEN",
+  "book_code": "GEN",
   "chapter": 1,
-  "verse": "1:1",
+  "verse": 1,
+  "reference": "1:1",
   "question": "What did God create in the beginning?",
-  "answer": "In the beginning, God created the heavens and the earth.",
+  "response": "In the beginning, God created the heavens and the earth.",
   "lang_code": "en",
-  "embedding": [0.023, -0.045, ..., 0.112]  // 768 floats
+  "embedding": [0.023, -0.045, ..., 0.112],  // 768 floats
+  "search_text": "1:1 What did God create in the beginning? In the beginning...",
+  "paraphrases": [],
+  "metadata": {
+    "source": "unfoldingWord_tq",
+    "imported_from": "faiss_vectorstore"
+  }
 }
 ```
-- Indexes: `vector_index` (on `embedding`), `text_index` (on `question`)
-- `embedding`: truncated to 768 dims from Gemini's native 3072 (Matryoshka)
+- `book_code`: 3-letter Bible book code (e.g., `GEN`, `MAT`, `REV`)
+- `embedding`: 768-dim Matryoshka-truncated vector from `text-embedding-004`
+- `search_text`: Combined `reference + question + response` for BM25 lexical search
+- `paraphrases`: Reserved for future multilingual paraphrases
+- Indexes: `vector_index` (on `embedding`), `text_index` (on `search_text`)
+- **No migration needed.** The collection is already seeded from FAISS indexes.
 
 ### `chat_history` Collection
 ```json
@@ -646,8 +665,10 @@ cd ..
 cp .env.example .env.local
 # Edit .env.local: set NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 
-# 4. Seed MongoDB with 10 Gemini keys
-# Run: python backend/scripts/seed_api_keys.py
+# 4. Seed MongoDB with 10 Gemini keys (for API rotation)
+# The qa_dataset collection is ALREADY populated (13,871 docs, 66 books).
+# No migration needed. Run this only if you need to seed Gemini keys:
+#   python backend/scripts/seed_api_keys.py
 # Or manually add 10 documents to `api_keys` collection
 
 # 5. Start backend
@@ -683,7 +704,12 @@ npm run dev
 2. Enter `0.0.0.0/0` (allows all IPs — Vercel serverless uses dynamic IPs)
 3. Confirm
 
-**Seed API Keys:**
+**Verify Dataset (already present):**
+1. The `qa_dataset` collection should already have 13,871 documents across 66 books
+2. To verify: run `python backend/scripts/check_qa_dataset.py` locally
+3. If empty or incomplete, run `python backend/scripts/import_faiss_to_mongodb.py` to import from FAISS
+
+**Seed API Keys (only if empty):**
 1. Add 10 Gemini API keys to the `api_keys` collection in MongoDB
 2. Each document: `{provider: "gemini", key_index: 0-9, key: "AIzaSy...", cooldown_until: 0.0, failures: 0}`
 
@@ -708,9 +734,16 @@ npm run dev
 ## 13. How to Extend
 
 ### Add a New Bible Book to the Dataset
+**The dataset is already complete (66 books, 13,871 docs).** Only use this if you want to add a new book or regenerate embeddings.
+
+**Option A: Import from FAISS (fast, no API calls)**
+1. Pre-build FAISS indexes in `backend/static_data/vectorstores/gemini/{BOOK}/`
+2. Run `python backend/scripts/import_faiss_to_mongodb.py`
+
+**Option B: Regenerate from TSV (slow, burns API keys)**
 1. Download the TQ TSV for the book from unfoldingWord
 2. Place in `backend/data/en_tq/{book_code}.tsv`
-3. Run migration script to embed and insert into MongoDB `qa_dataset`
+3. Run `python backend/scripts/migrate_all_books.py`
 
 ### Add a New Language
 1. Add `lang_code` to `backend/services/translation.py` supported languages
