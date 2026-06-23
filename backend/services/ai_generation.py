@@ -195,7 +195,7 @@ async def _generate_gemini_with_rotation(query: str, lang_name: str, book_code: 
                     model=GEMINI_MODEL,
                     contents=prompt,
                 ),
-                timeout=15.0
+                timeout=45.0
             )
             answer = response.text.strip() if response.text else ""
             tokens_used = max(1, int(len(prompt) / 4)) + max(1, int(len(answer) / 4))
@@ -203,7 +203,7 @@ async def _generate_gemini_with_rotation(query: str, lang_name: str, book_code: 
             print(f"Gemini Key Rotator: SUCCESS on attempt {attempt + 1} with key {key_preview}", flush=True)
             return answer, tokens_used
         except asyncio.TimeoutError:
-            print(f"Gemini Key Rotator: Timeout after 15s on attempt {attempt+1}")
+            print(f"Gemini Key Rotator: Timeout after 45s on attempt {attempt+1}")
             last_error = Exception("Generation timeout")
             continue
         except Exception as e:
@@ -243,9 +243,9 @@ async def _generate_langchain(query: str, lang_name: str, book_code: str, is_ove
         )
 
     try:
-        llm_result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=15.0)
+        llm_result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=45.0)
     except asyncio.TimeoutError:
-        raise Exception("LLM Generation timeout after 15s")
+        raise Exception("LLM Generation timeout after 45s")
         
     answer = llm_result.content.strip()
     usage = extract_token_usage(llm_result, prompt)
@@ -297,7 +297,7 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/webm") ->
                         types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
                     ]
                 ),
-                timeout=15.0
+                timeout=30.0
             )
             
             raw = response.text.strip() if response.text else ""
@@ -311,7 +311,7 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/webm") ->
             rotator.report_success()
             return raw
         except asyncio.TimeoutError:
-            print(f"Transcription: Timeout after 15s on attempt {attempt+1}")
+            print(f"Transcription: Timeout after 30s on attempt {attempt+1}")
             last_error = Exception("Transcription timeout")
             continue
         except Exception as e:

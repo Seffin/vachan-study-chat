@@ -51,11 +51,11 @@ async def translate_text(text: str, target_language: str, llm) -> str:
     
     for attempt in range(max_attempts):
         try:
-            result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=10.0)
+            result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=30.0)
             await asyncio.to_thread(rotator.report_success)
             return result.content.strip() if hasattr(result, 'content') else str(result).strip()
         except asyncio.TimeoutError:
-            print(f"Translation Error: Timeout after 10s on attempt {attempt+1}")
+            print(f"Translation Error: Timeout after 30s on attempt {attempt+1}")
             continue
         except Exception as e:
             if _is_rate_limit_error(e):
@@ -84,11 +84,11 @@ async def translate_to_english(text: str, llm) -> str:
     
     for attempt in range(max_attempts):
         try:
-            result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=10.0)
+            result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=30.0)
             await asyncio.to_thread(rotator.report_success)
             return result.content.strip() if hasattr(result, 'content') else str(result).strip()
         except asyncio.TimeoutError:
-            print(f"Translation Error: Timeout after 10s on attempt {attempt+1}")
+            print(f"Translation Error: Timeout after 30s on attempt {attempt+1}")
             continue
         except Exception as e:
             if _is_rate_limit_error(e):
