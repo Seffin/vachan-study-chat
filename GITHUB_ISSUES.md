@@ -258,6 +258,27 @@ const nextConfig: NextConfig = {
 
 ---
 
+## Issue 15: [DONE] Fix Vercel 504 Timeout via SSE Heartbeats & Async Generation
+
+**Priority:** Critical  
+**Status:** ✅ Completed
+
+### Problem
+The frontend UI was silently hanging and crashing during complex fallback generation (like Malayalam translation). This was caused by Vercel Serverless killing the HTTP connection prematurely, either due to idle timeout (no data sent) or because the internal limits were too restrictive (15s).
+
+### Fix Applied
+- Implemented `execute_with_heartbeat()` wrapper to yield an SSE `event: status` every 2 seconds, keeping the Vercel connection alive and defeating the idle timeout.
+- Wrapped all LangChain and native generation calls in `asyncio.wait_for` with extended 30s–50s timeouts.
+- Patched the frontend SSE stream parser in `Workspace.tsx` to handle `event: result` error payloads safely instead of silently dying when timeouts occur.
+
+### Files Changed
+- `backend/api/index.py`
+- `backend/services/ai_generation.py`
+- `backend/services/translation.py`
+- `src/components/Workspace.tsx`
+
+---
+
 ## Issue 11: [FUTURE] Upgrade to Vercel Pro for longer timeouts
 
 **Priority:** High (when traffic grows)  
@@ -475,6 +496,29 @@ curl -X POST https://api.github.com/repos/$REPO/issues \
     "title": "[FUTURE] Add structured logging with Logflare or Sentry",
     "body": "Errors currently only appear in Vercel logs via `print()`. Consider integrating Logflare (free tier) for searchable log aggregation or Sentry (free for small projects) for error tracking and alerting.",
     "labels": ["enhancement", "future", "monitoring"]
+  }'
+# Issue 15: Fix Vercel 504 Timeout via SSE Heartbeats & Async
+curl -X POST https://api.github.com/repos/$REPO/issues \
+  -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "[DONE] Fix Vercel 504 Timeout via SSE Heartbeats & Async Generation",
+    "body": "Fixed the silent UI hanging issue caused by Vercel 504 Gateway Timeouts. Added an `execute_with_heartbeat` wrapper that yields an SSE `event: status` every 2 seconds to keep the Vercel connection alive during long LLM calls. Wrapped all LangChain and native generation calls in strict 30s/50s timeouts. Fixed frontend SSE parser to safely handle `event: result` error payloads instead of freezing when limits are hit.",
+    "labels": ["bug", "vercel", "done"]
+  }'
+```
+
+---
+
+# Issue 16: Fix Vercel 500 — Stale `app/main.py` circular import crash
+
+curl -X POST https://api.github.com/repos/$REPO/issues \
+  -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "[DONE] Fix Vercel 500 — Stale app/main.py circular import crash",
+    "body": "Vercel logs showed `ImportError: cannot import name app from app.main` because the deployed build still contained a stale `app/main.py` that created a circular import with `app/__init__.py`. Fixed by explicitly declaring `api/index.py` as the sole entry point in `vercel.json` via the `functions` key, preventing Vercel from auto-detecting the old `app/main.py`. See VERCEL_DEPLOY_FIX.md for full redeploy steps.",
+    "labels": ["bug", "vercel", "done"]
   }'
 ```
 
