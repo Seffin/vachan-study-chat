@@ -1272,6 +1272,12 @@ export default function Workspace({
                   {message.source === "dataset_verified" && (
                     <div className="text-[11px] font-medium text-green-600 dark:text-green-500 flex items-center gap-1"><span>✅</span> Retrieval from native dataset (AI Verified)</div>
                   )}
+                  {message.source === "suggested_question" && (
+                    <div className="text-[11px] font-medium text-green-600 dark:text-green-500 flex items-center gap-1"><span>✅</span> Direct match from official dataset</div>
+                  )}
+                  {message.source === "ai_elaboration" && (
+                    <div className="text-[11px] font-medium text-amber-600 dark:text-amber-500 flex items-center gap-1"><span>💡</span> AI elaboration on dataset context</div>
+                  )}
                   {(message.source === "translated_from_en" || message.source === "dataset_translated") && (
                     <div className="text-[11px] font-medium text-amber-600 dark:text-amber-500 flex items-center gap-1"><span>⚠️</span> AI translated from English source</div>
                   )}

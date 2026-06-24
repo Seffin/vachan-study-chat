@@ -16,6 +16,9 @@ class ChatRequest(BaseModel):
     book: str
     message: str
     history: Optional[List[ChatMessage]] = []
+    conversation_state: Optional[dict] = None
+    suggested_question_id: Optional[str] = None
+    is_suggested_question: Optional[bool] = False
 
 
 class EnvUpdateRequest(BaseModel):

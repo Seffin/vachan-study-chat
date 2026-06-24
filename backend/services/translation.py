@@ -31,43 +31,62 @@ def detect_user_language(message: str) -> tuple:
 
 
 async def translate_text(text: str, target_language: str, llm) -> str:
-    """Translates text to the target language using the provided LLM instance.
-    
-    Args:
-        text: The text to translate.
-        target_language: The target language name (e.g. 'English', 'Malayalam').
-        llm: A LangChain LLM instance.
-    
-    Returns:
-        The translated text string.
-    """
+    """Translates text to the target language using the provided LLM instance."""
     prompt = f"Translate the following text to {target_language}. Output ONLY the translation, nothing else:\n\n{text}"
     
     from services.key_rotation import get_key_rotator
-    from services.ai_generation import get_llm_instance, _is_rate_limit_error
+    from services.ai_generation import get_llm_instance, get_active_provider, _is_rate_limit_error
     
+    active_provider = get_active_provider()
     rotator = get_key_rotator()
     max_attempts = max(rotator.total_keys, 1)
     
+    if active_provider == "gemini":
+        from google import genai
+        from config import GEMINI_MODEL
+        for attempt in range(max_attempts):
+            key = rotator.get_active_key()
+            if not key: break
+            try:
+                client = genai.Client(api_key=key)
+                result = await asyncio.wait_for(
+                    client.aio.models.generate_content(model=GEMINI_MODEL, contents=prompt),
+                    timeout=20.0
+                )
+                if result.text:
+                    rotator.report_success()
+                    return result.text.strip()
+            except asyncio.TimeoutError:
+                print(f"Translation Error: Timeout after 20s on attempt {attempt+1}. Rotating key...")
+                rotator.report_rate_limited()
+                continue
+            except Exception as e:
+                if _is_rate_limit_error(e):
+                    rotator.report_rate_limited()
+                    continue
+                print(f"Translation Error: {e}")
+                return text
+        return text
+
     for attempt in range(max_attempts):
         try:
-            result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=30.0)
+            result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=20.0)
             await asyncio.to_thread(rotator.report_success)
             return result.content.strip() if hasattr(result, 'content') else str(result).strip()
         except asyncio.TimeoutError:
-            print(f"Translation Error: Timeout after 30s on attempt {attempt+1}")
+            print(f"Translation Error: Timeout after 20s on attempt {attempt+1}")
+            await asyncio.to_thread(rotator.report_rate_limited)
+            llm = await asyncio.to_thread(get_llm_instance, "gemini")
+            if not llm: return text
             continue
         except Exception as e:
             if _is_rate_limit_error(e):
                 await asyncio.to_thread(rotator.report_rate_limited)
-                # Rebuild LLM with next key
                 llm = await asyncio.to_thread(get_llm_instance, "gemini")
-                if not llm:
-                    print("Translation: All keys exhausted.")
-                    return text # Fallback to original
+                if not llm: return text
                 continue
             print(f"Translation Error: {e}")
-            return text # Fallback to original
+            return text
             
     return text
 
@@ -77,29 +96,57 @@ async def translate_to_english(text: str, llm) -> str:
     prompt = f"Translate the following text to English, output ONLY the translation:\n{text}"
     
     from services.key_rotation import get_key_rotator
-    from services.ai_generation import get_llm_instance, _is_rate_limit_error
+    from services.ai_generation import get_llm_instance, get_active_provider, _is_rate_limit_error
     
+    active_provider = get_active_provider()
     rotator = get_key_rotator()
     max_attempts = max(rotator.total_keys, 1)
     
+    if active_provider == "gemini":
+        from google import genai
+        from config import GEMINI_MODEL
+        for attempt in range(max_attempts):
+            key = rotator.get_active_key()
+            if not key: break
+            try:
+                client = genai.Client(api_key=key)
+                result = await asyncio.wait_for(
+                    client.aio.models.generate_content(model=GEMINI_MODEL, contents=prompt),
+                    timeout=20.0
+                )
+                if result.text:
+                    rotator.report_success()
+                    return result.text.strip()
+            except asyncio.TimeoutError:
+                print(f"Translation Error: Timeout after 20s on attempt {attempt+1}. Rotating key...")
+                rotator.report_rate_limited()
+                continue
+            except Exception as e:
+                if _is_rate_limit_error(e):
+                    rotator.report_rate_limited()
+                    continue
+                print(f"Translation Error: {e}")
+                return text
+        return text
+
     for attempt in range(max_attempts):
         try:
-            result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=30.0)
+            result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=20.0)
             await asyncio.to_thread(rotator.report_success)
             return result.content.strip() if hasattr(result, 'content') else str(result).strip()
         except asyncio.TimeoutError:
-            print(f"Translation Error: Timeout after 30s on attempt {attempt+1}")
+            print(f"Translation Error: Timeout after 20s on attempt {attempt+1}")
+            await asyncio.to_thread(rotator.report_rate_limited)
+            llm = await asyncio.to_thread(get_llm_instance, "gemini")
+            if not llm: return text
             continue
         except Exception as e:
             if _is_rate_limit_error(e):
                 await asyncio.to_thread(rotator.report_rate_limited)
-                # Rebuild LLM with next key
                 llm = await asyncio.to_thread(get_llm_instance, "gemini")
-                if not llm:
-                    print("Translation: All keys exhausted.")
-                    return text # Fallback to original
+                if not llm: return text
                 continue
             print(f"Translation Error: {e}")
-            return text # Fallback to original
+            return text
             
     return text

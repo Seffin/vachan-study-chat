@@ -84,17 +84,36 @@ def _is_rate_limit_error(e: Exception) -> bool:
     ])
 
 
-async def rewrite_query_with_context(query: str, history: list, llm) -> str:
-    """Rewrites a user's query into a standalone query using the chat history."""
-    if not history or not llm:
+async def rewrite_query_with_context(
+    query: str,
+    history: list,
+    llm,
+    conversation_state=None,
+    followup_metadata: dict = None
+) -> str:
+    """Rewrites a user's query into a standalone query using the chat history, ConversationState, and follow-up metadata."""
+    if not history and not conversation_state:
+        return query
+    if not llm:
         return query
         
+    target_lang = conversation_state.detected_language if conversation_state else (followup_metadata.get("detected_language", "en") if followup_metadata else "en")
+    
     history_text = ""
-    for msg in history[-4:]: # Only take the last 4 turns for context
-        role = "User" if msg.role == "user" else "AI"
-        history_text += f"{role}: {msg.content}\n"
+    if conversation_state and conversation_state.original_question:
+        history_text += f"Original User Question: {conversation_state.original_question}\n"
+        if conversation_state.previous_assistant_answer:
+            history_text += f"Previous AI Answer: {conversation_state.previous_assistant_answer}\n"
+        if conversation_state.last_user_question and conversation_state.last_user_question != conversation_state.original_question:
+            history_text += f"Last User Question: {conversation_state.last_user_question}\n"
+
+    if history:
+        for msg in history[-4:]: # Cost optimization: Only take the last 4 turns for context
+            role = "User" if msg.role == "user" else "AI"
+            history_text += f"{role}: {msg.content}\n"
         
     prompt = f"""Given the following conversation history, rewrite the final User question into a standalone, context-independent query that can be understood without the conversation history.
+CRITICAL: Maintain and preserve the target language ({target_lang}) of the final user question.
 If the final user question is already standalone and does not contain any pronouns (like 'this', 'he', 'it', 'passage', 'here'), return it EXACTLY as it is.
 Do NOT answer the question. ONLY return the rewritten question.
 
@@ -323,4 +342,96 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/webm") ->
                 raise
                 
     raise last_error or Exception("All Gemini API keys are rate-limited for transcription.")
+
+
+async def generate_ai_elaboration(
+    query: str,
+    lang_name: str,
+    conversation_state,
+    history: list = None,
+    provider: str = "gemini"
+) -> tuple:
+    """
+    Generates a dedicated AI elaboration response anchored to the ConversationState.
+    Returns: (answer: str, tokens_used: int)
+    """
+    history_text = ""
+    if history:
+        # Cost Optimization / Token window budgeting: Trim old history, keep only recent 3 turns
+        for msg in history[-3:]:
+            role = "User" if msg.role == "user" else "AI"
+            history_text += f"{role}: {msg.content}\n"
+
+    orig_q = conversation_state.original_question if conversation_state else ""
+    last_q = conversation_state.last_user_question if conversation_state else ""
+    prev_ans = conversation_state.previous_assistant_answer if conversation_state else ""
+    dataset_ans = conversation_state.dataset_answer_reference if conversation_state else ""
+
+    prompt = f"""You are a scholarly Bible Study Chatbot expert providing deeper elaboration on a previous discussion.
+CRITICAL PROMPT RULES:
+1. Do NOT repeat the previous assistant answer or dataset answer verbatim.
+2. Expand the explanation with deeper theological, historical, or cultural context.
+3. Add supporting scripture references where available.
+4. Strictly respond in the user's language: {lang_name}.
+
+Grounding Context & Conversation State:
+- Original Question: {orig_q}
+- Last User Question: {last_q}
+- Dataset Grounding Answer: {dataset_ans}
+- Previous Assistant Answer: {prev_ans}
+- Recent Conversation History:
+{history_text}
+
+User Follow-Up Query: {query}
+
+Elaborated Response in {lang_name}:"""
+
+    print(f"Executing Elaboration Prompt Strategy (Target Language: {lang_name}, Follow-up Query: {query})", flush=True)
+
+    if provider == "gemini":
+        from google import genai
+        rotator = get_key_rotator()
+        max_attempts = max(rotator.total_keys, 1)
+        last_error = None
+        for attempt in range(max_attempts):
+            key = rotator.get_active_key()
+            if not key:
+                break
+            try:
+                client = genai.Client(api_key=key)
+                response = await asyncio.wait_for(
+                    client.aio.models.generate_content(
+                        model=GEMINI_MODEL,
+                        contents=prompt,
+                    ),
+                    timeout=45.0
+                )
+                answer = response.text.strip() if response.text else ""
+                tokens_used = max(1, int(len(prompt) / 4)) + max(1, int(len(answer) / 4))
+                rotator.report_success()
+                return answer, tokens_used
+            except asyncio.TimeoutError:
+                last_error = Exception("Generation timeout")
+                continue
+            except Exception as e:
+                last_error = e
+                if _is_rate_limit_error(e):
+                    rotator.report_rate_limited()
+                    continue
+                else:
+                    raise
+        raise last_error or Exception("All Gemini API keys are rate-limited.")
+    else:
+        from services.rate_limiter import extract_token_usage
+        llm = get_llm_instance(provider)
+        if not llm:
+            return "⚠️ No AI provider is configured.", 0
+        try:
+            llm_result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=45.0)
+        except asyncio.TimeoutError:
+            raise Exception("LLM Generation timeout after 45s")
+        answer = llm_result.content.strip()
+        usage = extract_token_usage(llm_result, prompt)
+        return answer, usage["total"]
+
 

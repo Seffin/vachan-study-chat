@@ -65,12 +65,40 @@ Query 2: {candidate_question}
 Respond with ONLY "YES" if they are semantically equivalent, or "NO" if they are not."""
 
     from services.key_rotation import get_key_rotator
-    from services.ai_generation import get_llm_instance, _is_rate_limit_error
+    from services.ai_generation import get_llm_instance, get_active_provider, _is_rate_limit_error
     import asyncio
     
+    active_provider = get_active_provider()
     rotator = get_key_rotator()
     max_attempts = max(rotator.total_keys, 1)
     
+    if active_provider == "gemini":
+        from google import genai
+        from config import GEMINI_MODEL
+        for attempt in range(max_attempts):
+            key = rotator.get_active_key()
+            if not key: break
+            try:
+                client = genai.Client(api_key=key)
+                result = await asyncio.wait_for(
+                    client.aio.models.generate_content(model=GEMINI_MODEL, contents=prompt),
+                    timeout=8.0
+                )
+                if result.text:
+                    rotator.report_success()
+                    return "YES" in result.text.strip().upper()
+            except asyncio.TimeoutError:
+                print(f"LLM Verification Error: Timeout after 8s on attempt {attempt+1}. Rotating key...")
+                rotator.report_rate_limited()
+                continue
+            except Exception as e:
+                if _is_rate_limit_error(e):
+                    rotator.report_rate_limited()
+                    continue
+                print(f"LLM Verification Error: {e}")
+                return False
+        return False
+
     for attempt in range(max_attempts):
         try:
             result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=8.0)
@@ -79,11 +107,13 @@ Respond with ONLY "YES" if they are semantically equivalent, or "NO" if they are
             return "YES" in text
         except asyncio.TimeoutError:
             print(f"LLM Verification Error: Timeout after 8s on attempt {attempt+1}")
+            await asyncio.to_thread(rotator.report_rate_limited)
+            llm = await asyncio.to_thread(get_llm_instance, "gemini")
+            if not llm: return False
             continue
         except Exception as e:
             if _is_rate_limit_error(e):
                 await asyncio.to_thread(rotator.report_rate_limited)
-                # Rebuild LLM with next key
                 llm = await asyncio.to_thread(get_llm_instance, "gemini")
                 if not llm:
                     print(f"LLM Verification: All keys exhausted.")
@@ -95,14 +125,24 @@ Respond with ONLY "YES" if they are semantically equivalent, or "NO" if they are
     return False
 
 
-async def decide_best_match(query: str, candidates: List[Dict[str, Any]], llm) -> tuple[Optional[Dict[str, Any]], str, int]:
+from app.models import ResponseMode
+
+async def decide_best_match(
+    query: str,
+    candidates: List[Dict[str, Any]],
+    llm,
+    is_followup: bool = False
+) -> tuple[Optional[Dict[str, Any]], str, int, ResponseMode]:
     """Decides the best match based on re-ranker scores and LLM verification.
+    Converts direct-hit answers into elaboration workflow if follow-up intent is detected,
+    without discarding direct-hit grounding context.
     
     Returns:
-        tuple: (best_candidate, source_label, tokens_used)
+        tuple: (best_candidate, source_label, tokens_used, ResponseMode)
     """
     if not candidates:
-        return None, "no_match", 0
+        mode = ResponseMode.ELABORATE if is_followup else ResponseMode.GENERATE
+        return None, "no_match", 0, mode
         
     best = candidates[0]
     score = best.get("rerank_score", 0.0)
@@ -111,7 +151,9 @@ async def decide_best_match(query: str, candidates: List[Dict[str, Any]], llm) -
     # HIGH confidence
     if score >= RERANK_HIGH_THRESHOLD:
         print(f"Re-ranker HIGH confidence ({score:.2f}) for: {best['question']}")
-        return best, "dataset_native", tokens_used
+        mode = ResponseMode.ELABORATE if is_followup else ResponseMode.DIRECT_HIT
+        print(f"Reranker: ResponseMode decision -> {mode.value}", flush=True)
+        return best, "dataset_native", tokens_used, mode
         
     # MEDIUM confidence
     if score >= RERANK_MEDIUM_THRESHOLD:
@@ -124,9 +166,14 @@ async def decide_best_match(query: str, candidates: List[Dict[str, Any]], llm) -
         
         if is_match:
             print(f"LLM Verification Confirmed match for: {best['question']}")
-            return best, "dataset_verified", tokens_used
+            mode = ResponseMode.ELABORATE if is_followup else ResponseMode.DIRECT_HIT
+            print(f"Reranker: ResponseMode decision -> {mode.value}", flush=True)
+            return best, "dataset_verified", tokens_used, mode
         else:
             print("LLM Verification Rejected match.")
             
     # LOW confidence
-    return None, "no_match", tokens_used
+    mode = ResponseMode.ELABORATE if is_followup else ResponseMode.GENERATE
+    print(f"Reranker: ResponseMode decision -> {mode.value}", flush=True)
+    return None, "no_match", tokens_used, mode
+

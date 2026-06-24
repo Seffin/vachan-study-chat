@@ -174,8 +174,10 @@ class DatasetRepository:
                     normalized_fieldnames.append(field_clean)
                 reader.fieldnames = normalized_fieldnames
                 
-                for row in reader:
+                for i, row in enumerate(reader):
+                    rec_id = str(row.get("id") or row.get("_id") or row.get("ID") or f"{book_code}_{i}").strip()
                     records.append({
+                        "id": rec_id,
                         "Reference": str(row.get("Reference") or "1:1").strip() or "1:1",
                         "Question": str(row.get("Question") or "").strip(),
                         "Response": str(row.get("Response") or "").strip()

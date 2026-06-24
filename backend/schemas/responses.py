@@ -25,6 +25,8 @@ class ChatResponse(BaseModel):
     requests_this_minute: int = 0
     source: Optional[str] = None
     error: Optional[ChatError] = None
+    conversation_state: Optional[dict] = None
+    response_mode: Optional[str] = None
 
 
 class SuggestedQuestionsOutput(BaseModel):

@@ -76,3 +76,10 @@ dmypy.json
 # ── OS ──
 Thumbs.db
 desktop.ini
+
+# ── Local Test & Artifact Files ──
+backend/test_ml_query.py
+implementation_plan
+implementation_plan.md
+task.md
+walkthrough.md

@@ -6,6 +6,10 @@ Refactored to use Clean Architecture and Hybrid Search (BM25 + Vector).
 
 import os
 import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
 import asyncio
 import time
 import json
@@ -177,7 +181,7 @@ def normalize_text(text: str) -> str:
     return re.sub(r'[^a-z0-9]', '', text.lower())
 
 
-async def execute_with_heartbeat(coro, message: str, timeout: float = 50.0):
+async def execute_with_heartbeat(coro, message: str, timeout: float = 100.0):
     """
     Executes a coroutine while yielding an SSE heartbeat every 2 seconds.
     This prevents Vercel Serverless from killing the connection during heavy tasks (like translation/LLM).
@@ -204,7 +208,8 @@ def is_overview_query(query: str) -> bool:
     q_lower = query.lower().strip()
     patterns = [
         r'\boverview\b', r'\bsummary\b', r'\bintroduce\b',
-        r'\bintroduction\b', r'\boutline\b', r'\bthemes\b'
+        r'\bintroduction\b', r'\boutline\b', r'\bthemes\b', r'\bbackground\b',
+        r'പശ്ചാത്തലം', r'വിവരണം', r'അവലോകനം', r'ആമുഖം', r'സംഗ്രഹം', r'ചുരുക്കം'
     ]
     for pattern in patterns:
         if re.search(pattern, q_lower):
@@ -306,9 +311,9 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
       try:
         start_time = time.time()
         # Vercel Free Tier max is typically 10s to 60s depending on config.
-        MAX_DURATION = float(os.environ.get("SSE_MAX_DURATION", "50.0"))
+        MAX_DURATION = float(os.environ.get("SSE_MAX_DURATION", "100.0"))
         if os.environ.get("VERCEL_ENV") not in ("production", "preview"):
-            MAX_DURATION = float(os.environ.get("SSE_MAX_DURATION", "60.0"))
+            MAX_DURATION = float(os.environ.get("SSE_MAX_DURATION", "100.0"))
         print(f"SSE timeout guard: {MAX_DURATION}s", flush=True)
 
         original_query = request.message.strip()
@@ -336,11 +341,84 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
         embeddings_model = await get_embeddings_model_async(active_provider)
         print(f"Active provider: {active_provider}, LLM ready: {llm is not None}, Embeddings ready: {embeddings_model is not None}", flush=True)
 
+        from app.models import ConversationState, ResponseMode
+        from services.followup_detector import FollowupDetector
+        from services.ai_generation import generate_ai_elaboration
+
+        c_state = None
+        if request.conversation_state:
+            c_state = ConversationState.from_dict(request.conversation_state)
+        elif request.history:
+            # Dynamic Reconstruction for legacy requests without ConversationState
+            last_user = ""
+            last_asst = ""
+            orig_q = ""
+            for msg in request.history:
+                if msg.role == "user":
+                    if not orig_q:
+                        orig_q = msg.content
+                    last_user = msg.content
+                elif msg.role == "assistant":
+                    last_asst = msg.content
+            c_state = ConversationState(
+                original_question=orig_q or original_query,
+                last_user_question=last_user or original_query,
+                previous_assistant_answer=last_asst,
+                dataset_answer_reference=None,
+                elaboration_depth=0,
+                detected_language=lang_code
+            )
+
+        # Check Dataset Fast Path (Suggested Question ID & Exact Match Lookup)
+        dataset_fast_match = None
+        dataset_records = DatasetRepository.load_dataset_records(book_code)
+        if getattr(request, 'suggested_question_id', None):
+            for rec in dataset_records:
+                if rec.get("id") == request.suggested_question_id:
+                    dataset_fast_match = rec
+                    break
+        if not dataset_fast_match:
+            clean_query = original_query.strip().lower()
+            for rec in dataset_records:
+                if rec.get("Question", "").strip().lower() == clean_query:
+                    dataset_fast_match = rec
+                    break
+
+        # FollowupDetector (Phase 1)
+        if dataset_fast_match:
+            is_followup = False
+            followup_meta = {
+                "is_followup": False,
+                "intent": "none",
+                "confidence": 0.0,
+                "matched_layer": "none",
+                "detected_language": lang_code,
+                "requires_elaboration": False
+            }
+            print("STRUCTURED LOG [Dataset Fast Path]: Exact match found, bypassing FollowupDetector.", flush=True)
+        else:
+            followup_meta = FollowupDetector.detect(
+                original_query=original_query,
+                conversation_state=c_state,
+                history=request.history,
+                detected_language=lang_code
+            )
+            is_followup = followup_meta["is_followup"]
+
+        print(f"STRUCTURED LOG [Follow-Up Detection]: {json.dumps(followup_meta)}", flush=True)
+        if c_state:
+            print(f"STRUCTURED LOG [ConversationState]: original_question='{c_state.original_question}', last_user_question='{c_state.last_user_question}', elaboration_depth={c_state.elaboration_depth}", flush=True)
+
+        if is_followup and c_state and c_state.elaboration_depth >= 2:
+            print("STRUCTURED LOG [Elaboration Depth Protection]: max_elaboration_depth=2 reached. Resetting follow-up intent to fresh generation clarification fallback.", flush=True)
+            is_followup = False
+            c_state.elaboration_depth = 0
+
         # Intercept and rewrite query using history
         active_query = original_query
-        if request.history and not rate_limited and tokens_data["pending_tokens"] > 0:
+        if not dataset_fast_match and (request.history or c_state) and not rate_limited and tokens_data["pending_tokens"] > 0:
             yield f"event: status\ndata: Analyzing conversation context...\n\n"
-            async for item in execute_with_heartbeat(rewrite_query_with_context(original_query, request.history, llm), "Analyzing context", 50.0):
+            async for item in execute_with_heartbeat(rewrite_query_with_context(original_query, request.history, llm, conversation_state=c_state, followup_metadata=followup_meta), "Analyzing context", 100.0):
                 if isinstance(item, dict) and "result" in item:
                     active_query = item["result"]
                 else:
@@ -368,6 +446,22 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                     yield f"event: result\ndata: {json.dumps(error_payload)}\n\n"
                     return
 
+        # Translation & FollowupDetector (Phase 2 Enhancement)
+        if lang_code != "en" and not is_followup and not rate_limited and tokens_data["pending_tokens"] > 0 and llm:
+            async for item in execute_with_heartbeat(translate_to_english(active_query, llm), "Translating to English for detector enhancement", 100.0):
+                if isinstance(item, dict) and "result" in item:
+                    en_query_detect = item["result"]
+                    followup_meta = FollowupDetector.detect(
+                        original_query=original_query,
+                        translated_query=en_query_detect,
+                        conversation_state=c_state,
+                        history=request.history,
+                        detected_language=lang_code
+                    )
+                    is_followup = followup_meta["is_followup"]
+                else:
+                    yield item
+
         is_overview = is_overview_query(active_query)
         
         answer = ""
@@ -375,6 +469,7 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
         source = "ai_general"
         is_general_knowledge = False
         error_obj = ChatError(status=False)
+        r_mode = ResponseMode.GENERATE
         
         # Only spawn diagram generation if the query looks like it needs one
         diagram_task = None
@@ -388,7 +483,39 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                 answer = OFFLINE_OVERVIEWS[book_code]
                 source = "dataset_native"
                 is_general_knowledge = True
+                r_mode = ResponseMode.DIRECT_HIT
                 
+            # Step 0.5: Dataset Fast Path (Suggested Question ID & Exact Match Lookup)
+            elif dataset_fast_match:
+                yield f"event: status\ndata: ✅ Dataset fast match found...\n\n"
+                answer = dataset_fast_match["Response"]
+                top_ref = dataset_fast_match["Reference"]
+                source = "suggested_question"
+                r_mode = ResponseMode.DIRECT_HIT
+                rec_id = dataset_fast_match.get("id", "unknown")
+                print(f"source=suggested_question\ndataset_match=true\ndataset_id={rec_id}\nresponse_mode=direct_hit", flush=True)
+                if not c_state:
+                    c_state = ConversationState(original_question=original_query, last_user_question=original_query, previous_assistant_answer=answer, dataset_answer_reference=answer, elaboration_depth=0, detected_language=lang_code)
+                else:
+                    c_state.previous_assistant_answer = answer
+                    c_state.dataset_answer_reference = answer
+                    c_state.last_user_question = original_query
+
+            # Grounding Context Assembly & Retrieval Drift Mitigation
+            elif is_followup and c_state and (c_state.previous_assistant_answer or c_state.dataset_answer_reference):
+                yield f"event: status\ndata: Sufficient grounding context found. Elaborating...\n\n"
+                print("Retrieval Drift Mitigation: Sufficient grounding context found. Skipping fresh retrieval.", flush=True)
+                r_mode = ResponseMode.ELABORATE
+                async for item in execute_with_heartbeat(generate_ai_elaboration(original_query, lang_name, c_state, request.history, active_provider), "Elaborating on previous answer", 100.0):
+                    if isinstance(item, dict) and "result" in item:
+                        answer, ai_tokens = item["result"]
+                        tokens_used += ai_tokens
+                    else:
+                        yield item
+                source = "ai_elaboration"
+                c_state.elaboration_depth += 1
+                c_state.last_user_question = original_query
+
             else:
                 # Generate Embedding for Hybrid Search
                 query_embedding = []
@@ -417,10 +544,10 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                 ranked_candidates = rerank_candidates(active_query, candidates)
                 
                 # Step 3: Confidence Decision
-                best_match, source_label, verify_tokens = None, "no_match", 0
-                async for item in execute_with_heartbeat(decide_best_match(active_query, ranked_candidates, llm), "Verifying matches", 50.0):
+                best_match, source_label, verify_tokens, r_mode = None, "no_match", 0, ResponseMode.GENERATE
+                async for item in execute_with_heartbeat(decide_best_match(active_query, ranked_candidates, llm, is_followup=is_followup), "Verifying matches", 100.0):
                     if isinstance(item, dict) and "result" in item:
-                        best_match, source_label, verify_tokens = item["result"]
+                        best_match, source_label, verify_tokens, r_mode = item["result"]
                     else:
                         yield item
                         
@@ -433,9 +560,28 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                 if best_match:
                     score = best_match.get("rerank_score", 0)
                     yield f"event: status\ndata: ✅ Match found (confidence: {score:.0%})\n\n"
-                    answer = best_match["response"]
                     top_ref = best_match["reference"]
                     source = source_label
+                    if not c_state:
+                        c_state = ConversationState(original_question=original_query, last_user_question=original_query, previous_assistant_answer="", dataset_answer_reference=best_match["response"], elaboration_depth=0, detected_language=lang_code)
+                    else:
+                        c_state.dataset_answer_reference = best_match["response"]
+
+                    if r_mode == ResponseMode.ELABORATE:
+                        yield f"event: status\ndata: Elaborating on matched context...\n\n"
+                        async for item in execute_with_heartbeat(generate_ai_elaboration(original_query, lang_name, c_state, request.history, active_provider), "Elaborating on matched context", 100.0):
+                            if isinstance(item, dict) and "result" in item:
+                                answer, ai_tokens = item["result"]
+                                tokens_used += ai_tokens
+                            else:
+                                yield item
+                        source = "ai_elaboration"
+                        c_state.elaboration_depth += 1
+                        c_state.last_user_question = original_query
+                    else:
+                        answer = best_match["response"]
+                        c_state.previous_assistant_answer = answer
+                        c_state.last_user_question = original_query
                     
                 else:
                     # Step 4: Translation Fallback OR AI Generation
@@ -449,7 +595,7 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                         
                         # Translate query to English
                         yield f"event: status\ndata: Translating query to English...\n\n"
-                        async for item in execute_with_heartbeat(translate_to_english(active_query, llm), "Translating to English", 50.0):
+                        async for item in execute_with_heartbeat(translate_to_english(active_query, llm), "Translating to English", 100.0):
                             if isinstance(item, dict) and "result" in item:
                                 en_query = item["result"]
                             else:
@@ -473,10 +619,10 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                         en_candidates = await hybrid_search(en_query, en_embedding, book_code, "en", k=10)
                         en_ranked = rerank_candidates(en_query, en_candidates)
                         
-                        en_best, en_source, en_verify_tokens = None, "no_match", 0
-                        async for item in execute_with_heartbeat(decide_best_match(en_query, en_ranked, llm), "Verifying English matches", 50.0):
+                        en_best, en_source, en_verify_tokens, r_mode = None, "no_match", 0, ResponseMode.GENERATE
+                        async for item in execute_with_heartbeat(decide_best_match(en_query, en_ranked, llm, is_followup=is_followup), "Verifying English matches", 100.0):
                             if isinstance(item, dict) and "result" in item:
-                                en_best, en_source, en_verify_tokens = item["result"]
+                                en_best, en_source, en_verify_tokens, r_mode = item["result"]
                             else:
                                 yield item
                                 
@@ -490,24 +636,50 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                             score = en_best.get("rerank_score", 0)
                             yield f"event: status\ndata: ✅ English match found (confidence: {score:.0%}). Translating to {lang_name}...\n\n"
                             print("Match found in English dataset. Translating answer to native language...")
-                            async for item in execute_with_heartbeat(translate_text(en_best["response"], lang_name, llm), "Translating answer", 50.0):
+                            async for item in execute_with_heartbeat(translate_text(en_best["response"], lang_name, llm), "Translating answer", 100.0):
                                 if isinstance(item, dict) and "result" in item:
-                                    answer = item["result"]
+                                    translated_ans = item["result"]
                                 else:
                                     yield item
                             top_ref = en_best["reference"]
                             source = "dataset_translated"
-                            tokens_used += max(1, int(len(en_best["response"])/4)) + max(1, int(len(answer)/4))
+                            tokens_used += max(1, int(len(en_best["response"])/4)) + max(1, int(len(translated_ans)/4))
+                            
+                            if not c_state:
+                                c_state = ConversationState(original_question=original_query, last_user_question=original_query, previous_assistant_answer="", dataset_answer_reference=translated_ans, elaboration_depth=0, detected_language=lang_code)
+                            else:
+                                c_state.dataset_answer_reference = translated_ans
+
+                            if r_mode == ResponseMode.ELABORATE:
+                                yield f"event: status\ndata: Elaborating on translated match...\n\n"
+                                async for item in execute_with_heartbeat(generate_ai_elaboration(original_query, lang_name, c_state, request.history, active_provider), "Elaborating on translated match", 100.0):
+                                    if isinstance(item, dict) and "result" in item:
+                                        answer, ai_tokens = item["result"]
+                                        tokens_used += ai_tokens
+                                    else:
+                                        yield item
+                                source = "ai_elaboration"
+                                c_state.elaboration_depth += 1
+                                c_state.last_user_question = original_query
+                            else:
+                                answer = translated_ans
+                                c_state.previous_assistant_answer = answer
+                                c_state.last_user_question = original_query
                         else:
                             yield f"event: status\ndata: No dataset match. Generating AI response...\n\n"
                             print("English dataset missed. Falling back to AI Generation...")
-                            async for item in execute_with_heartbeat(generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider), "Generating AI answer", 50.0):
+                            async for item in execute_with_heartbeat(generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider), "Generating AI answer", 100.0):
                                 if isinstance(item, dict) and "result" in item:
                                     answer, ai_tokens = item["result"]
                                 else:
                                     yield item
                             source = "ai_general"
                             tokens_used += ai_tokens
+                            if not c_state:
+                                c_state = ConversationState(original_question=original_query, last_user_question=original_query, previous_assistant_answer=answer, dataset_answer_reference=None, elaboration_depth=0, detected_language=lang_code)
+                            else:
+                                c_state.previous_assistant_answer = answer
+                                c_state.last_user_question = original_query
                     else:
                         # English or rate-limited: Fall back directly to AI Generation
                         if rate_limited or tokens_data["pending_tokens"] <= 0:
@@ -516,7 +688,7 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                         else:
                             yield f"event: status\ndata: No dataset match. Generating AI response...\n\n"
                             print("Falling back to AI Generation...")
-                            async for item in execute_with_heartbeat(generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider), "Generating AI answer", 50.0):
+                            async for item in execute_with_heartbeat(generate_ai_answer(active_query, lang_name, book_code, is_overview, active_provider), "Generating AI answer", 100.0):
                                 if isinstance(item, dict) and "result" in item:
                                     answer, ai_tokens = item["result"]
                                 else:
@@ -524,6 +696,11 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
                             source = "ai_general"
                             is_general_knowledge = True
                             tokens_used += ai_tokens
+                            if not c_state:
+                                c_state = ConversationState(original_question=original_query, last_user_question=original_query, previous_assistant_answer=answer, dataset_answer_reference=None, elaboration_depth=0, detected_language=lang_code)
+                            else:
+                                c_state.previous_assistant_answer = answer
+                                c_state.last_user_question = original_query
 
             # Clean up disclaimers
             for d in ALL_DISCLAIMERS:
@@ -610,7 +787,9 @@ async def chat_endpoint(request: ChatRequest, req: Request, current_user: Dict =
             "requests_today": stats.get("requests_today", 0),
             "requests_this_minute": stats.get("requests_this_minute", 0),
             "source": source,
-            "error": {"status": error_obj.status, "tag": error_obj.tag, "message": error_obj.message}
+            "error": {"status": error_obj.status, "tag": error_obj.tag, "message": error_obj.message},
+            "conversation_state": c_state.to_dict() if c_state else None,
+            "response_mode": r_mode.value if hasattr(r_mode, "value") else str(r_mode)
         }
         yield f"event: result\ndata: {json.dumps(result)}\n\n"
 
