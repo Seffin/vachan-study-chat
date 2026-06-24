@@ -29,11 +29,13 @@
 **Vachan Study** is a full-stack, multilingual AI Bible study chatbot. It uses a **Retrieval-Augmented Generation (RAG)** pipeline grounded in the **unfoldingWord Translation Questions (TQ)** dataset (~18,000 Q&A pairs) to deliver scholarly, contextually accurate answers.
 
 **Key Differentiators:**
-- **Hybrid Search:** Combines semantic (vector) + lexical (BM25) search in MongoDB Atlas
-- **Multilingual:** Auto-detects user language, translates queries, searches, then translates answers back
-- **Voice-First:** Speech-to-text via Gemini, text-to-speech via gTTS
-- **Offline Resilience:** Falls back to local mock data when the backend is unreachable
-- **Single-Session Auth:** JWT-based with bcrypt, one active session per user, login audit logging
+- **Dataset Fast Path:** Instantly resolves exact matches and Suggested Question IDs with zero LLM latency and zero token cost.
+- **Multilingual Follow-Up Detection:** A dedicated 4-layer detection architecture (`FollowupDetector`) anchored to `ConversationState` for seamless contextual elaboration.
+- **Native Gemini SDK Key Rotation:** Timeout-triggered key rotation across translation, verification, and generation ensures complete resilience against API stalls and rate limits (429).
+- **Hybrid Search:** Combines semantic (vector) + lexical (BM25) search in MongoDB Atlas.
+- **Voice-First:** Speech-to-text via Gemini, text-to-speech via gTTS.
+- **Offline Resilience:** Falls back to local mock data when the backend is unreachable.
+- **Single-Session Auth:** JWT-based with bcrypt, one active session per user, login audit logging.
 
 **Deployed on:** Vercel (frontend + backend as separate projects) + MongoDB Atlas
 
@@ -53,7 +55,7 @@
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
 │  │ Study Room   │  │ Workspace    │  │ Login/Notes │                  │
 │  │ (book grid)  │  │ (chat +      │  │ (auth)      │                  │
-│  │              │  │  scripture)   │  │             │                  │
+│  │              │  │  badges)     │  │             │                  │
 │  └──────────────┘  └──────────────┘  └──────────────┘                  │
 │                                                                          │
 │  Next.js 16 + React 19 + TypeScript + Tailwind CSS + Framer Motion      │
@@ -116,7 +118,7 @@ They communicate via HTTPS. The backend is NOT embedded in the frontend project.
 
 **What we DON'T use:**
 - `faiss-cpu` — replaced by MongoDB Atlas Vector Search
-- `langchain` — direct Gemini SDK calls instead
+- `langchain` — native Gemini SDK calls prioritized to prevent async wrapper hangs
 - `openai` — Gemini is the sole provider
 - Redis — MongoDB handles state across instances
 
@@ -142,7 +144,7 @@ Logos Bible Study Chatbot/
 │   │   ├── globals.css            # Tailwind + custom CSS
 │   │   └── favicon.ico
 │   ├── components/
-│   │   ├── Workspace.tsx          # 3-pane layout: chat, scripture, nav
+│   │   ├── Workspace.tsx          # 3-pane layout: chat, scripture, nav (with source badges)
 │   │   ├── Navbar.tsx             # Top bar: views, theme, user menu
 │   │   ├── StudyRoom.tsx          # Landing: 66-book grid
 │   │   ├── LoginPage.tsx          # Auth: login + register
@@ -154,7 +156,7 @@ Logos Bible Study Chatbot/
 │
 ├── backend/                       # Python FastAPI
 │   ├── api/
-│   │   └── index.py               # ⭐ ENTRY POINT — all routes, SSE, auth
+│   │   └── index.py               # ⭐ ENTRY POINT — all routes, SSE, auth, Dataset Fast Path
 │   ├── app/
 │   │   ├── core/
 │   │   │   ├── config.py          # Pydantic settings (SECRET_KEY, etc.)
@@ -164,33 +166,38 @@ Logos Bible Study Chatbot/
 │   │   │   ├── auth.py            # Auth endpoints (clean architecture)
 │   │   │   ├── chat.py            # Chat endpoint (clean architecture)
 │   │   │   └── analytics.py       # Analytics endpoints
+│   │   ├── models.py              # ConversationState & ResponseMode models
 │   │   └── __init__.py
 │   ├── config.py                  # Book mappings, disclaimers, thresholds
 │   ├── db/
 │   │   ├── mongodb.py             # Motor/PyMongo connection
-│   │   ├── repositories.py        # Chat, Scripture, Dataset, Metrics
+│   │   ├── repositories.py        # Chat, Scripture, Dataset, Key, Metrics repositories
 │   │   └── user_repository.py     # User CRUD + session management
 │   ├── schemas/
 │   │   ├── auth.py                # Pydantic: LoginRequest, RegisterRequest, TokenResponse
-│   │   ├── requests.py            # Pydantic: ChatRequest, EnvUpdateRequest
+│   │   ├── requests.py            # Pydantic: ChatRequest (with suggested_question_id), EnvUpdateRequest
 │   │   └── responses.py           # Pydantic: ChatResponse, ChatError, TokenStatusResponse
 │   ├── services/                  # Business logic
-│   │   ├── ai_generation.py       # LLM calls, key rotation, transcribe
+│   │   ├── ai_generation.py       # Native Gemini LLM calls, key rotation, transcribe
 │   │   ├── embedding.py           # text-embedding-004 wrapper
-│   │   ├── key_rotation.py      # Multi-key Gemini round-robin
-│   │   ├── rate_limiter.py       # Token budget + RPM/RPD tracking
-│   │   ├── reranker.py            # Cross-encoder scoring + confidence
+│   │   ├── followup_detector.py   # 4-layer FollowupDetector service
+│   │   ├── key_rotation.py        # Multi-key Gemini round-robin
+│   │   ├── rate_limiter.py        # Token budget + RPM/RPD tracking
+│   │   ├── reranker.py            # Cross-encoder scoring + native LLM verification
 │   │   ├── retrieval.py           # Hybrid BM25 + Vector search
-│   │   └── translation.py         # langdetect + auto-translation
+│   │   └── translation.py         # langdetect + native Gemini translation
 │   ├── scripts/                   # Diagnostic & migration utilities
 │   │   ├── check_qa_dataset.py    # Report: documents, books, embeddings per book
 │   │   ├── check_sample_doc.py    # Inspect one document's fields
 │   │   ├── import_faiss_to_mongodb.py  # Import FAISS indexes → MongoDB (no API calls)
-│   │   ├── migrate_all_books.py   # Regenerate embeddings from TSV (slow, burns API keys)
-│   │   └── migrate_to_qa_dataset.py    # Single-book migration (legacy)
+│   │   ├── migrate_all_books.py   # Regenerate embeddings from TSV
+│   │   └── migrate_to_qa_dataset.py    # Single-book migration
 │   ├── data/en_tq/                # unfoldingWord TSV datasets (per book)
 │   ├── static_data/               # Precompiled JSON scriptures & CSV
-│   ├── static_data/vectorstores/gemini/  # Pre-built FAISS indexes (66 books, already imported)
+│   ├── static_data/vectorstores/gemini/  # Pre-built FAISS indexes (66 books)
+│   ├── test_multilingual.py       # Comprehensive multilingual verification script
+│   ├── tests/
+│   │   └── test_followup_workflow.py   # 11 automated verification tests
 │   ├── requirements.txt           # ⭐ DEPLOYED to Vercel (stripped, <50MB)
 │   ├── requirements-local.txt     # Full local dev (faiss, langchain, etc.)
 │   ├── requirements-vercel.txt    # Alias for requirements.txt
@@ -201,7 +208,7 @@ Logos Bible Study Chatbot/
 ├── package.json                   # Frontend deps + test script
 ├── jest.config.ts                 # Jest test configuration
 ├── tsconfig.json                  # TypeScript config
-├── GITHUB_ISSUES.md               # Tracked issues (10 done, 4 future)
+├── GITHUB_ISSUES.md               # Tracked issues
 ├── VERCEL_DEPLOY_FIX.md           # Deployment troubleshooting guide
 └── README.md                      # Project overview
 ```
@@ -217,7 +224,7 @@ Logos Bible Study Chatbot/
 | File | Purpose | Key Exports |
 |------|---------|-------------|
 | `src/app/page.tsx` | Root app component. Manages auth state, view switching, token metrics, Settings/Help modals. | `Home` (default) |
-| `src/components/Workspace.tsx` | 3-pane study layout: scripture navigator (left), chat (center), verse reader (right). Handles SSE streaming, voice input, TTS playback, suggested questions. | `Workspace` |
+| `src/components/Workspace.tsx` | 3-pane study layout: scripture navigator (left), chat (center), verse reader (right). Handles SSE streaming, voice input, TTS playback, suggested questions, and renders visual source badges (`✅`, `💡`). | `Workspace` |
 | `src/components/Navbar.tsx` | Top navigation bar. Theme toggle, view switcher, user profile dropdown with logout. | `Navbar` |
 | `src/components/StudyRoom.tsx` | Landing page grid of 66 Bible books. Searchable, animated. | `StudyRoom` |
 | `src/components/LoginPage.tsx` | Auth UI. Login form + register form. Validates inputs, stores JWT in localStorage. | `LoginPage` |
@@ -228,26 +235,30 @@ Logos Bible Study Chatbot/
 
 | File | Purpose | Key Classes/Functions |
 |------|---------|---------------------|
-| `backend/api/index.py` | **Vercel entry point.** All 18 routes, SSE streaming, auth, CORS, rate limiting, global exception handler. | `app` (FastAPI), `chat_endpoint`, `get_current_active_user` |
+| `backend/api/index.py` | **Vercel entry point.** All 18 routes, SSE streaming, auth, CORS, rate limiting, Dataset Fast Path, 100s timeout guards, UTF-8 console fix. | `app` (FastAPI), `chat_endpoint`, `get_current_active_user` |
 | `backend/app/core/config.py` | Pydantic settings. SECRET_KEY, MONGO_URI, token expiry, rate limits. | `Settings`, `settings` |
 | `backend/app/core/security.py` | JWT creation/decode, bcrypt password hashing, login rate limiting. | `create_token`, `decode_token`, `hash_password`, `verify_password` |
+| `backend/app/models.py` | Pydantic & Dataclass domain models for `ConversationState` and `ResponseMode` enum. | `ConversationState`, `ResponseMode` |
 | `backend/app/routes/auth.py` | Clean architecture auth routes. **NOT deployed.** | `router` |
 | `backend/app/routes/chat.py` | Clean architecture chat routes. **NOT deployed.** | `router` |
 | `backend/app/routes/analytics.py` | Clean architecture analytics routes. **NOT deployed.** | `router` |
 | `backend/config.py` | Non-Pydantic config: book code mappings, offline overviews, disclaimer texts, RERANK thresholds. | `normalize_book_code`, `OFFLINE_OVERVIEWS`, `ALL_DISCLAIMERS` |
 | `backend/db/mongodb.py` | MongoDB connection. Lazy async (Motor) + sync (PyMongo) dual connection. | `get_database()`, `get_sync_database()` |
-| `backend/db/repositories.py` | Data access layer: ChatSession, Scripture, Dataset, Key, Metrics repositories. | `ChatSessionRepository`, `ScriptureRepository`, `DatasetRepository`, `KeyRepository`, `MetricsRepository` |
+| `backend/db/repositories.py` | Data access layer: ChatSession, Scripture, Dataset (with Suggested Question stable ID generation), Key, Metrics repositories. | `ChatSessionRepository`, `ScriptureRepository`, `DatasetRepository`, `KeyRepository`, `MetricsRepository` |
 | `backend/db/user_repository.py` | User CRUD: create, get by username/ID, update, delete, session management. | `UserRepository` |
-| `backend/services/ai_generation.py` | LLM calls via Google Gemini SDK. Key rotation on 429. Transcription. Query rewrite. | `generate_ai_answer`, `get_llm_instance_async`, `transcribe_audio`, `rewrite_query_with_context` |
+| `backend/services/ai_generation.py` | Native Google Gemini SDK calls. Key rotation on 429/timeout. Transcription. Query rewrite. | `generate_ai_answer`, `get_llm_instance_async`, `transcribe_audio`, `rewrite_query_with_context`, `generate_ai_elaboration` |
 | `backend/services/embedding.py` | Gemini text-embedding-004 wrapper. 768-dim Matryoshka truncation. | `get_embeddings_model_async` |
+| `backend/services/followup_detector.py` | 4-layer FollowupDetector service (Explicit, Semantic, Conversation-Aware, Translation-Aware) with continuation keyword guards. | `FollowupDetector` |
 | `backend/services/retrieval.py` | Hybrid search: concurrent BM25 text search + vector search in MongoDB Atlas. | `hybrid_search` |
-| `backend/services/reranker.py` | Cross-encoder scoring. Confidence decision: direct hit (≥0.85) vs LLM fallback. | `rerank_candidates`, `decide_best_match` |
-| `backend/services/translation.py` | Language detection (langdetect). Auto-translate query to English, answer back to native. | `detect_user_language`, `translate_to_english`, `translate_text` |
+| `backend/services/reranker.py` | Cross-encoder scoring. Confidence decision: direct hit (≥0.85) vs native LLM verification with key rotation. | `rerank_candidates`, `decide_best_match`, `verify_match_llm` |
+| `backend/services/translation.py` | Language detection (langdetect). Native Gemini SDK auto-translation with timeout key rotation. | `detect_user_language`, `translate_to_english`, `translate_text` |
 | `backend/services/rate_limiter.py` | Token budget tracking. RPM/RPD counters synced via MongoDB. | `is_rate_limited_async`, `check_and_update_rate_limits_async`, `load_tokens_data_async`, `save_tokens_data_async` |
-| `backend/services/key_rotation.py` | Multi-key Gemini round-robin. Reads keys from MongoDB `api_keys`. Pushes cooldown on 429. | `GeminiKeyRotator`, `get_key_rotator` |
+| `backend/services/key_rotation.py` | Multi-key Gemini round-robin. Reads keys from MongoDB `api_keys`. Pushes cooldown on 429/timeout. | `GeminiKeyRotator`, `get_key_rotator` |
 | `backend/schemas/auth.py` | Pydantic models for auth. | `LoginRequest`, `RegisterRequest`, `TokenResponse`, `UserResponse` |
-| `backend/schemas/requests.py` | Pydantic request models. | `ChatRequest`, `EnvUpdateRequest` |
-| `backend/schemas/responses.py` | Pydantic response models. | `ChatResponse`, `ChatError`, `TokenStatusResponse`, `BookDatasetResponse` |
+| `backend/schemas/requests.py` | Pydantic request models including `suggested_question_id` and `is_suggested_question`. | `ChatRequest`, `EnvUpdateRequest` |
+| `backend/schemas/responses.py` | Pydantic response models including `conversation_state` and `response_mode`. | `ChatResponse`, `ChatError`, `TokenStatusResponse`, `BookDatasetResponse` |
+| `backend/test_multilingual.py` | Comprehensive verification script testing Malayalam, Spanish, Hindi, French, and Chinese queries. | `main` |
+| `backend/tests/test_followup_workflow.py` | 11 automated unit and integration tests verifying the Dataset Fast Path, follow-up detection, and timeouts. | `TestFollowupWorkflow` |
 
 ---
 
@@ -271,7 +282,7 @@ User types: "What did God create in the beginning?"
 │ 2. BACKEND: /api/chat endpoint      │
 │    - IP rate limit check (30/min)  │
 │    - JWT auth verification         │
-│    - Start SSE stream              │
+│    - Start SSE stream (100s guard) │
 └──────────┬──────────────────────────┘
            │
            ▼
@@ -283,24 +294,38 @@ User types: "What did God create in the beginning?"
            │
            ▼
 ┌─────────────────────────────────────┐
-│ 4. QUERY REWRITE (optional)         │
-│    If history exists:               │
-│    rewrite_query_with_context()     │
-│    → "What did God create in the   │
-│       beginning according to        │
-│       Genesis 1?"                   │
+│ 4. DATASET FAST PATH (Preemptive)   │
+│    - Match suggested_question_id   │
+│    - OR Match exact question text   │
+│    → If hit: skip to Step 11        │
+│       (ResponseMode.DIRECT_HIT)     │
+└──────────┬──────────────────────────┘
+           │ (If missed)
+           ▼
+┌─────────────────────────────────────┐
+│ 5. FOLLOW-UP DETECTION              │
+│    FollowupDetector.detect()        │
+│    (4-layer analysis + keywords)    │
+│    → is_followup: True / False      │
 └──────────┬──────────────────────────┘
            │
            ▼
 ┌─────────────────────────────────────┐
-│ 5. EMBEDDING GENERATION             │
+│ 6. QUERY REWRITE (optional)         │
+│    If history exists & standalone:  │
+│    rewrite_query_with_context()     │
+└──────────┬──────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────┐
+│ 7. EMBEDDING GENERATION             │
 │    text-embedding-004(query)       │
 │    → 768-dim vector                 │
 └──────────┬──────────────────────────┘
            │
            ▼
 ┌─────────────────────────────────────┐
-│ 6. HYBRID SEARCH (concurrent)       │
+│ 8. HYBRID SEARCH (concurrent)       │
 │    MongoDB Atlas:                   │
 │    a) $vectorSearch (semantic)     │
 │    b) $search (BM25 text)          │
@@ -309,43 +334,19 @@ User types: "What did God create in the beginning?"
            │
            ▼
 ┌─────────────────────────────────────┐
-│ 7. RE-RANKING                       │
+│ 9. RE-RANKING & VERIFICATION        │
 │    cross-encoder(query, candidates)│
 │    → scored list (0.0–1.0)         │
+│    → verify_match_llm() if medium   │
 └──────────┬──────────────────────────┘
            │
            ▼
 ┌─────────────────────────────────────┐
-│ 8. CONFIDENCE DECISION              │
-│    decide_best_match()              │
-│                                     │
-│    If score ≥ 0.85:                 │
-│      → DIRECT HIT (return dataset   │
-│         answer, 0 LLM tokens)       │
-│                                     │
-│    If 0.50 ≤ score < 0.85:         │
-│      → LLM VERIFY (validate with    │
-│         retrieved context)           │
-│                                     │
-│    If score < 0.50:                 │
-│      → FALLBACK to AI generation    │
-└──────────┬──────────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────────┐
-│ 9. TRANSLATION FALLBACK (if needed) │
-│    If non-English miss:               │
-│    - translate query → English       │
-│    - search English dataset          │
-│    - translate answer → native       │
-└──────────┬──────────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────────┐
-│ 10. ANSWER GENERATION               │
-│     generate_ai_answer()            │
-│     → Gemini 2.5 Flash              │
-│     → streaming response            │
+│ 10. GENERATION & ELABORATION        │
+│     - generate_ai_elaboration()     │
+│       (if is_followup = True)       │
+│     - generate_ai_answer()          │
+│       (if general fallback)         │
 └──────────┬──────────────────────────┘
            │
            ▼
@@ -364,7 +365,8 @@ User types: "What did God create in the beginning?"
 │     event: status → event: status   │
 │     → ... → event: result          │
 │     (JSON with answer, reference,   │
-│     suggested questions, diagram)   │
+│     suggested questions, diagram,   │
+│     source, response_mode)          │
 └─────────────────────────────────────┘
 ```
 
@@ -507,7 +509,7 @@ event: status
 data: ✅ Match found (confidence: 95%)
 
 event: result
-data: {"answer": "...", "reference": "1:1", "suggested_questions": [...], "diagram": "...", "source": "dataset_native", ...}
+data: {"answer": "...", "reference": "1:1", "suggested_questions": [...], "diagram": "...", "source": "dataset_native", "response_mode": "direct_hit", ...}
 ```
 
 ---
@@ -556,7 +558,7 @@ The collection was built from two sources:
 }
 ```
 - `book_code`: 3-letter Bible book code (e.g., `GEN`, `MAT`, `REV`)
-- `embedding`: 768-dim Matryoshka-truncated vector from `text-embedding-004`
+- `embedding`: 768-dim Matryoshka-truncated vector from `text_embedding_004`
 - `search_text`: Combined `reference + question + response` for BM25 lexical search
 - `paraphrases`: Reserved for future multilingual paraphrases
 - Indexes: `vector_index` (on `embedding`), `text_index` (on `search_text`)
@@ -628,7 +630,7 @@ The collection was built from two sources:
 | `GEMINI_API_KEY` | ⚠️ | `AIzaSy...` | Primary Gemini API key (fallback if MongoDB keys empty) |
 | `ALLOWED_ORIGINS` | ⚠️ | `https://vachan-study-chat-snpm.vercel.app` | CORS origins (comma-separated) |
 | `BIBLE_API_KEY` | ❌ | `abc123...` | API.Bible REST key (for dynamic scripture) |
-| `SSE_MAX_DURATION` | ❌ | `10` | SSE timeout in seconds (default: 8 on Vercel, 30 local) |
+| `SSE_MAX_DURATION` | ❌ | `100.0` | SSE timeout guard in seconds (extended to 100s for resilient generation) |
 | `SKIP_DIAGRAM` | ❌ | `1` | Skip Mermaid diagram generation (saves 1 LLM call) |
 
 ### Frontend (`.env.local` or Vercel Dashboard)
@@ -726,9 +728,9 @@ npm run dev
 | `500: FUNCTION_INVOCATION_FAILED` | Vercel loading stale `app/main.py` instead of `api/index.py` | Set `vercel.json` with explicit `functions: {"api/index.py": {}}` |
 | `Failed to fetch` / CORS error | Backend not allowing frontend origin | Check `ALLOWED_ORIGINS` env var includes frontend URL |
 | `Token quota exhausted` | All 10 Gemini keys on cooldown | Wait 60 seconds, or reduce LLM calls per query |
-| `Request is taking too long` | Vercel 10s timeout hit | Query is too complex. Simplify question, or upgrade to Vercel Pro |
+| `Request is taking too long` | Vercel timeout hit | Query is too complex. Simplify question, or upgrade to Vercel Pro |
 | MongoDB connection timeout | IP whitelist missing `0.0.0.0/0` | Add `0.0.0.0/0` to MongoDB Atlas Network Access |
-| `ImportError: cannot import name app` | Circular import in `app/main.py` | Delete `backend/app/main.py` if it exists; use `api/index.py` only |
+| `UnicodeEncodeError: 'charmap' codec` | Windows console encoding mismatch | Fixed by `sys.stdout.reconfigure(encoding='utf-8')` in `api/index.py` |
 | `localStorage` token lost on refresh | Token not validated on mount | Frontend checks `/api/auth/me` on mount, shows login if invalid |
 | `bcrypt` build errors on Vercel | `requirements.txt` has `bcrypt` but no build tools | Use `bcrypt` (precompiled wheels) not `py-bcrypt` |
 | `faiss-cpu` too large for Vercel | `requirements.txt` includes `faiss-cpu` (~50MB) | Use `requirements.txt` (stripped) or `requirements-vercel.txt` |
@@ -789,6 +791,6 @@ npm run dev
 
 ---
 
-*Generated for Vachan Study. Last updated after Vercel deployment fixes and production hardening.*
+*Generated for Vachan Study. Last updated after Vercel deployment fixes, Dataset Fast Path integration, and production hardening.*
 
 *For AI models: This document is the single source of truth. Always read this before modifying any file in this project.*

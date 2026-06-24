@@ -54,17 +54,22 @@ npm run dev                  # http://localhost:3000
 ```
 src/
   app/              Next.js routing & layout (Settings + Help modals)
-  components/       Workspace, Navbar, StudyRoom, LoginPage
+  components/       Workspace (with ✅ Direct match & 💡 AI elaboration badges), Navbar, StudyRoom, LoginPage
   data/             Offline scripture fallback
 backend/
-  api/index.py      FastAPI entry point (all endpoints consolidated)
-  app/core/         Security (JWT, bcrypt, rate limiting), config
-  db/               MongoDB connection, repositories, user_repository
-  services/         RAG, translation, AI, key rotation, rate limiter
+  api/index.py      FastAPI entry point (all endpoints consolidated, Dataset Fast Path, 100s SSE timeout)
+  app/
+    core/           Security (JWT, bcrypt, rate limiting), config
+    models.py       ConversationState & ResponseMode data models
+  db/               MongoDB connection, repositories (Suggested Question stable IDs), user_repository
+  services/         RAG, translation, AI, key rotation, rate limiter, followup_detector
   schemas/          Pydantic request/response models
   scripts/          Vector migration, dataset setup, key management
   data/en_tq/       unfoldingWord TSV datasets
   static_data/      Precompiled JSON scriptures & CSV fallbacks
+  test_multilingual.py      Comprehensive multilingual verification script
+  tests/
+    test_followup_workflow.py   11 automated tests for fast path & follow-ups
   requirements.txt          Vercel-safe deps (stripped, no heavy ML)
   requirements-local.txt    Full local dev deps (faiss, langchain, etc.)
   runtime.txt               Python 3.12 pinning for Vercel
@@ -84,7 +89,10 @@ Deployed as Vercel Serverless Functions with the following production optimizati
 
 - **CORS lockdown**: Only the production frontend origin is allowed (not `*`)
 - **IP rate limiting**: 30 req / 60 sec per IP on `/api/chat` (in-memory, resets per cold start)
-- **SSE timeout guard**: 8s hard limit on Vercel Free Tier (30s locally) to prevent 504s
+- **SSE timeout guard**: Extended to **100s** (`SSE_MAX_DURATION=100.0`) across all stages (translation, verification, generation) to prevent premature 504s during high-latency LLM tasks.
+- **Dataset Fast Path**: Bypasses vector retrieval, reranking, and AI generation entirely for Suggested Question IDs and exact text matches, instantly returning `ResponseMode.DIRECT_HIT`.
+- **Native Gemini SDK Key Rotation**: Uses native `google.genai` SDK across translation, verification, and AI generation with timeout-triggered key rotation (20s/8s/45s) to instantly bypass stalled LangChain wrappers or rate limits (429).
+- **Multilingual Follow-Up Detection**: 4-layer `FollowupDetector` (explicit, semantic, conversation-aware, translation-aware) anchored to `ConversationState` for pristine contextual elaboration.
 - **Startup diagnostics**: `MONGO_URI` presence check and MongoDB connection test on cold start
 - **Health check**: `GET /api/health` with MongoDB `ping` for uptime monitoring
 - **Global exception handler**: All unhandled errors return structured JSON (not raw HTML 500)
@@ -95,6 +103,7 @@ Deployed as Vercel Serverless Functions with the following production optimizati
 
 ## Frontend Features
 
+- **Visual Source Badges**: Real-time visual indicators below chat bubbles (`✅ Direct match from official dataset` and `💡 AI elaboration on dataset context`).
 - **Settings modal**: Theme switcher, API backend display, version info
 - **Help & Guide modal**: Getting started, voice features, keyboard shortcuts
 - **Q&A Dataset Viewer**: Browse the unfoldingWord translation questions per book
